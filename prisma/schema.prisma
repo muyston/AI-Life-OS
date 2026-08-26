@@ -1,0 +1,113 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  repoUrl     String?
+  status      String   @default("ACTIVE") // ACTIVE, ON_HOLD, COMPLETED, ARCHIVED
+  priority    String   @default("MEDIUM") // LOW, MEDIUM, HIGH, CRITICAL
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tasks Task[]
+
+  @@map("projects")
+}
+
+model Task {
+  id                String    @id @default(cuid())
+  projectId         String?
+  title             String
+  description       String?
+  type              String    @default("NORMAL") // MANUAL, RECURRING, NORMAL, AGENT_GENERATED
+  status            String    @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, CANCELLED
+  priority          String    @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  deadline          DateTime?
+  estimatedDuration Int       @default(30) // En minutos
+  origin            String    @default("MANUAL") // MANUAL, GITHUB_TODO, ANTIGRAVITY_TODO, AGENT_PLANNING, etc.
+  scheduledStart    DateTime?
+  scheduledEnd      DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([deadline])
+  @@index([projectId])
+  @@map("tasks")
+}
+
+model CalendarEvent {
+  id          String   @id @default(cuid())
+  externalId  String   @unique
+  summary     String
+  description String?
+  startTime   DateTime
+  endTime     DateTime
+  isAllDay    Boolean  @default(false)
+  location    String?
+  status      String   @default("CONFIRMED") // CONFIRMED, TENTATIVE, CANCELLED
+  rawData     String?  // JSON serializado
+  syncedAt    DateTime @default(now())
+
+  @@index([startTime, endTime])
+  @@map("calendar_events")
+}
+
+model RecurringPattern {
+  id                String   @id @default(cuid())
+  description       String
+  detectedFrequency String   // DAILY, WEEKLY, BIWEEKLY, MONTHLY
+  associatedTasks   String   // JSON string array de IDs o descripciones
+  confidenceScore   Float    // 0.0 a 1.0
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  miniApps MiniApp[]
+
+  @@map("recurring_patterns")
+}
+
+model MiniApp {
+  id                  String   @id @default(cuid())
+  patternId           String?
+  name                String
+  slug                String   @unique
+  skillDefinitionPath String?  // Ruta hacia el fichero SKILL.md
+  skillContent        String?  // Contenido markdown del SKILL.md
+  status              String   @default("PROPOSED") // PROPOSED, ACTIVE, ARCHIVED
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  pattern RecurringPattern? @relation(fields: [patternId], references: [id], onDelete: SetNull)
+
+  @@map("mini_apps")
+}
+
+model AgentRun {
+  id              String   @id @default(cuid())
+  agentName       String   // PLANNING_AGENT, CAPTURE_AGENT, PATTERN_AGENT, BRIEFING_AGENT, MINI_APP_GENERATOR
+  triggerType     String   // MANUAL, CRON, EVENT
+  inputPayload    String?  // JSON string
+  outputPayload   String?  // JSON string
+  tokensUsed      Int      @default(0)
+  costEstimate    Float    @default(0.0)
+  status          String   @default("SUCCESS") // SUCCESS, FAILED, RUNNING
+  errorMessage    String?
+  executionTimeMs Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  @@index([agentName])
+  @@index([createdAt])
+  @@map("agent_runs")
+}
