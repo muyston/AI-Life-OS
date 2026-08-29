@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ProjectEntity, ProjectStatus, PriorityLevel } from "@/lib/types";
-import { X, Check } from "lucide-react";
+import { ProjectEntity, ProjectStatus, PriorityLevel, ProjectCategory } from "@/lib/types";
+import { X, Check, Code2, Briefcase, GraduationCap, Dumbbell, User } from "lucide-react";
 
 interface ProjectModalProps {
   isOpen: boolean;
@@ -15,6 +15,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalP
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [repoUrl, setRepoUrl] = useState("");
+  const [category, setCategory] = useState<ProjectCategory>("tech");
   const [status, setStatus] = useState<ProjectStatus>("ACTIVE");
   const [priority, setPriority] = useState<PriorityLevel>("MEDIUM");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -25,12 +26,14 @@ export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalP
       setName(project.name);
       setDescription(project.description || "");
       setRepoUrl(project.repoUrl || "");
+      setCategory(project.category || "tech");
       setStatus(project.status);
       setPriority(project.priority);
     } else {
       setName("");
       setDescription("");
       setRepoUrl("");
+      setCategory("tech");
       setStatus("ACTIVE");
       setPriority("MEDIUM");
     }
@@ -54,6 +57,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalP
         name: name.trim(),
         description: description.trim() || null,
         repoUrl: repoUrl.trim() || null,
+        category,
         status,
         priority,
       });
@@ -97,14 +101,31 @@ export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalP
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Ej. Life OS Core"
+              placeholder="Ej. Antigravity Core / Lanzing Hub"
               className="w-full px-3 py-2 bg-surface-950 border border-surface-800 rounded text-xs text-surface-100 placeholder-surface-600 focus:outline-none focus:border-accent-500"
             />
           </div>
 
           <div>
             <label className="block text-xs font-medium text-surface-300 mb-1">
-              Descripcion (opcional)
+              Categoría Multidominio <span className="text-red-400">*</span>
+            </label>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value as ProjectCategory)}
+              className="w-full px-3 py-2 bg-surface-950 border border-surface-800 rounded text-xs text-surface-100 focus:outline-none focus:border-accent-500 font-mono"
+            >
+              <option value="tech">Tech (Antigravity, PPT Academy, SaaS)</option>
+              <option value="business">Business (Lanzing, Clientes, Ventas)</option>
+              <option value="academic">Academic (Ingeniería UPM, MotoStudent)</option>
+              <option value="performance">Performance (Pádel, Gimnasio, Hábitos)</option>
+              <option value="personal">Personal (Vida, Finanzas, Viajes)</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-surface-300 mb-1">
+              Descripción (opcional)
             </label>
             <textarea
               rows={3}
@@ -157,7 +178,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalP
                 <option value="LOW">Baja (LOW)</option>
                 <option value="MEDIUM">Media (MEDIUM)</option>
                 <option value="HIGH">Alta (HIGH)</option>
-                <option value="CRITICAL">Critica (CRITICAL)</option>
+                <option value="CRITICAL">Crítica (CRITICAL)</option>
               </select>
             </div>
           </div>

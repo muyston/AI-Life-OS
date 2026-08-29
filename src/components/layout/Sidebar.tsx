@@ -8,6 +8,7 @@ import {
   CheckSquare, 
   Calendar, 
   Bot, 
+  Inbox,
   Activity,
   ShieldCheck,
   Settings
@@ -18,6 +19,7 @@ export function Sidebar() {
 
   const navigation = [
     { name: "Vista Diaria", href: "/", icon: LayoutDashboard },
+    { name: "Smart Inbox", href: "/ideas", icon: Inbox },
     { name: "Proyectos", href: "/projects", icon: FolderKanban },
     { name: "Tareas", href: "/tasks", icon: CheckSquare },
     { name: "Calendario", href: "/calendar", icon: Calendar },

@@ -5,30 +5,74 @@ const prisma = new PrismaClient();
 async function main() {
   console.log("Iniciando sembrado de datos iniciales en SQLite...");
 
-  // 1. Limpiar o verificar proyectos
-  const project1 = await prisma.project.upsert({
+  // 1. Proyectos multidominio representativos
+  const projectTech = await prisma.project.upsert({
     where: { id: "proj-life-os" },
-    update: {},
+    update: { category: "tech" },
     create: {
       id: "proj-life-os",
-      name: "Life OS Core",
-      description: "Sistema operativo personal con arquitectura de agentes de IA y memoria estructurada.",
+      name: "Antigravity & AI Life OS Core",
+      description: "Sistema operativo personal con arquitectura multi-agente modular y memoria estructurada.",
       repoUrl: "https://github.com/usuario/life-os",
+      category: "tech",
       status: "ACTIVE",
       priority: "CRITICAL",
     },
   });
 
-  const project2 = await prisma.project.upsert({
+  const projectBusiness = await prisma.project.upsert({
     where: { id: "proj-lanzing" },
-    update: {},
+    update: { category: "business" },
     create: {
       id: "proj-lanzing",
-      name: "Ecosistema Lanzing",
-      description: "Desarrollo y automatizaciones clínicas del ecosistema Lanzing.",
+      name: "Ecosistema Lanzing Clínicas",
+      description: "Desarrollo y automatizaciones clínicas, captación y cualificación B2B.",
       repoUrl: "https://github.com/usuario/lanzing-hub",
+      category: "business",
       status: "ACTIVE",
       priority: "HIGH",
+    },
+  });
+
+  const projectAcademic = await prisma.project.upsert({
+    where: { id: "proj-upm" },
+    update: { category: "academic" },
+    create: {
+      id: "proj-upm",
+      name: "Ingeniería UPM & MotoStudent",
+      description: "Proyectos académicos, telemetría y diseño de sistemas mecánicos y de control.",
+      repoUrl: "https://github.com/usuario/motostudent-upm",
+      category: "academic",
+      status: "ACTIVE",
+      priority: "HIGH",
+    },
+  });
+
+  const projectPerformance = await prisma.project.upsert({
+    where: { id: "proj-performance" },
+    update: { category: "performance" },
+    create: {
+      id: "proj-performance",
+      name: "Pádel de Competición & Hábitos",
+      description: "Entrenamiento físico, rutinas de gimnasio y registro de rendimiento deportivo.",
+      repoUrl: null,
+      category: "performance",
+      status: "ACTIVE",
+      priority: "MEDIUM",
+    },
+  });
+
+  const projectPersonal = await prisma.project.upsert({
+    where: { id: "proj-personal" },
+    update: { category: "personal" },
+    create: {
+      id: "proj-personal",
+      name: "Finanzas Personales & Viajes",
+      description: "Planificación patrimonial, presupuestos mensuales y logística de viajes.",
+      repoUrl: null,
+      category: "personal",
+      status: "ACTIVE",
+      priority: "LOW",
     },
   });
 
@@ -46,15 +90,15 @@ async function main() {
     update: {},
     create: {
       id: "task-001",
-      projectId: project1.id,
-      title: "Configurar credenciales OAuth de Google Calendar en consola GCP",
-      description: "Generar Client ID y Refresh Token para sincronizacion automatica bidireccional.",
-      type: "MANUAL",
+      projectId: projectTech.id,
+      title: "Revisar arquitectura de agentes e inferencia en Google Gemini",
+      description: "Asegurar esquemas estructurados JSON y fallback determinista.",
+      type: "NORMAL",
       status: "PENDING",
       priority: "URGENT",
       deadline: deadlineToday,
-      estimatedDuration: 30,
-      origin: "MANUAL",
+      estimatedDuration: 45,
+      origin: "DEV_AGENT",
     },
   });
 
@@ -63,15 +107,15 @@ async function main() {
     update: {},
     create: {
       id: "task-002",
-      projectId: project1.id,
-      title: "Diseñar arquitectura del Agente de Captura de GitHub para Fase 2",
-      description: "Escanear bloques MANUAL_TODO en repositorios activos y convertirlos en tareas de Life OS.",
+      projectId: projectBusiness.id,
+      title: "Auditoría de prospectos y propuesta de cold outreach para clínicas",
+      description: "Supervisar registros en estado pendiente_revision para validación en 1 clic.",
       type: "NORMAL",
       status: "PENDING",
       priority: "HIGH",
-      deadline: tomorrow,
-      estimatedDuration: 45,
-      origin: "MANUAL",
+      deadline: deadlineToday,
+      estimatedDuration: 30,
+      origin: "SALES_AGENT",
     },
   });
 
@@ -80,14 +124,14 @@ async function main() {
     update: {},
     create: {
       id: "task-003",
-      projectId: project2.id,
-      title: "Revisar pipeline de cualificacion de leads en clinicas",
-      description: "Supervisar registros en estado pendiente_revision segun directriz de intervencion humana.",
-      type: "RECURRING",
+      projectId: projectAcademic.id,
+      title: "Análisis de telemetría y entrega de informe MotoStudent",
+      description: "Revisar curvas de aceleración y consumo de potencia.",
+      type: "NORMAL",
       status: "PENDING",
       priority: "HIGH",
-      deadline: deadlineToday,
-      estimatedDuration: 45,
+      deadline: tomorrow,
+      estimatedDuration: 60,
       origin: "MANUAL",
     },
   });
@@ -97,15 +141,15 @@ async function main() {
     update: {},
     create: {
       id: "task-004",
-      projectId: project1.id,
-      title: "Auditoria de seguridad y validacion estricta de variables de entorno",
-      description: "Asegurar que ningun token o credencial se filtre fuera de .env.",
-      type: "NORMAL",
-      status: "COMPLETED",
+      projectId: projectPerformance.id,
+      title: "Sesión de gimnasio: Fuerza tren superior y prevención de lesiones",
+      description: "Bloque de acondicionamiento físico pre-partido.",
+      type: "RECURRING",
+      status: "PENDING",
       priority: "MEDIUM",
-      estimatedDuration: 20,
+      deadline: deadlineToday,
+      estimatedDuration: 60,
       origin: "MANUAL",
-      completedAt: new Date(),
     },
   });
 
@@ -119,8 +163,8 @@ async function main() {
     update: {},
     create: {
       externalId: `seed-ev-1-${y}-${m}-${d}`,
-      summary: "Reunion de Coordinacion Tecnica",
-      description: "Sincronizacion de arquitectura y dependencias.",
+      summary: "Reunión de Coordinación Técnica",
+      description: "Sincronización de arquitectura y dependencias.",
       startTime: new Date(y, m, d, 9, 30),
       endTime: new Date(y, m, d, 10, 30),
       location: "Google Meet",
@@ -133,8 +177,8 @@ async function main() {
     update: {},
     create: {
       externalId: `seed-ev-2-${y}-${m}-${d}`,
-      summary: "Revision de Metricas y Operaciones",
-      description: "Analisis de rendimiento y ejecucion de servicios.",
+      summary: "Revisión de Métricas y Operaciones",
+      description: "Análisis de rendimiento y ejecución de servicios.",
       startTime: new Date(y, m, d, 13, 0),
       endTime: new Date(y, m, d, 14, 0),
       location: "Oficina",
@@ -147,8 +191,8 @@ async function main() {
     update: {},
     create: {
       externalId: `seed-ev-3-${y}-${m}-${d}`,
-      summary: "Sincronizacion de Roadmap y Agentes",
-      description: "Puesta en comun de prioridades de desarrollo.",
+      summary: "Sincronización de Roadmap y Agentes",
+      description: "Puesta en común de prioridades de desarrollo.",
       startTime: new Date(y, m, d, 16, 30),
       endTime: new Date(y, m, d, 17, 30),
       location: "Google Meet",
@@ -156,7 +200,38 @@ async function main() {
     },
   });
 
-  console.log("Sembrado de datos iniciales completado con exito.");
+  // 4. Acciones IA iniciales para probar el feed en Dashboard
+  await prisma.aiAction.upsert({
+    where: { id: "action-seed-1" },
+    update: {},
+    create: {
+      id: "action-seed-1",
+      agentName: "STRATEGY",
+      title: "Desbalance detectado en dominio Academic",
+      description: "Se han identificado 2 entregas de MotoStudent sin tareas desglosadas para esta semana.",
+      category: "academic",
+      actionType: "STRATEGY_ALERT",
+      payload: JSON.stringify({ projectId: projectAcademic.id, suggestedAction: "DESGLOSAR_TAREAS" }),
+      status: "PENDING_REVIEW",
+    },
+  });
+
+  await prisma.aiAction.upsert({
+    where: { id: "action-seed-2" },
+    update: {},
+    create: {
+      id: "action-seed-2",
+      agentName: "SALES",
+      title: "Borrador de propuesta de prospección para Clínica Dental Norte",
+      description: "Secuencia de 3 correos personalizados redactados y listos para validación humana.",
+      category: "business",
+      actionType: "OUTREACH_DRAFT",
+      payload: JSON.stringify({ target: "Clínica Dental Norte", template: "AEO_HEALTHCARE_V1" }),
+      status: "PENDING_REVIEW",
+    },
+  });
+
+  console.log("Sembrado de datos multidominio completado con éxito.");
 }
 
 main()

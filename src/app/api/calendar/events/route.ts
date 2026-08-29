@@ -1,8 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { calculateFreeSlotsForDate } from "@/lib/calendar/ical-service";
+import { apiSuccess, handleApiError } from "@/lib/api-response";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function GET(request: NextRequest) {
   try {
@@ -27,24 +29,19 @@ export async function GET(request: NextRequest) {
 
     const freeSlots = await calculateFreeSlotsForDate(targetDate);
 
-    return NextResponse.json({
-      success: true,
-      data: {
-        date: targetDate.toISOString().split("T")[0],
-        events,
-        freeSlots,
-        summary: {
-          totalEvents: events.length,
-          freeSlotsCount: freeSlots.length,
-          totalFreeMinutes: freeSlots.reduce((acc, s) => acc + s.durationMinutes, 0),
-        },
+    const data = {
+      date: targetDate.toISOString().split("T")[0],
+      events,
+      freeSlots,
+      summary: {
+        totalEvents: events.length,
+        freeSlotsCount: freeSlots.length,
+        totalFreeMinutes: freeSlots.reduce((acc, s) => acc + s.durationMinutes, 0),
       },
-    });
+    };
+
+    return apiSuccess(data);
   } catch (error) {
-    console.error("Error al obtener eventos de calendario:", error);
-    return NextResponse.json(
-      { success: false, error: "Error interno al recuperar eventos del calendario." },
-      { status: 500 }
-    );
+    return handleApiError(error, "Error interno al recuperar eventos del calendario.");
   }
 }

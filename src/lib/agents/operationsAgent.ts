@@ -2,13 +2,30 @@ import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { prisma } from "../prisma";
 import { calculateFreeSlotsForDate } from "../calendar/ical-service";
 import { logAgentRun } from "./agent-logger";
-import { PlanningAgentProposal, PlannedTaskAssignment, PriorityLevel, FreeTimeSlot } from "../types";
+import { PlannedTaskAssignment, PriorityLevel, FreeTimeSlot } from "../types";
 
-interface PendingTaskForPlanner {
+export interface OperationsAgentResult {
+  generatedAt: string;
+  targetDate: string;
+  scheduleSummary: string;
+  totalFreeMinutes: number;
+  freeSlotsCount: number;
+  tasksScheduledCount: number;
+  unassignedTasksCount: number;
+  assignments: PlannedTaskAssignment[];
+  unassignedTasks: {
+    taskId: string;
+    taskTitle: string;
+    reason: string;
+  }[];
+  operationalRecommendations: string[];
+}
+
+interface PendingTaskForSchedule {
   id: string;
   title: string;
   projectId: string | null;
-  project?: { name: string } | null;
+  project?: { id: string; name: string; category?: string } | null;
   priority: string;
   deadline: Date | null;
   estimatedDuration: number;
@@ -18,14 +35,11 @@ function isPriorityLevel(val: unknown): val is PriorityLevel {
   return typeof val === "string" && ["LOW", "MEDIUM", "HIGH", "CRITICAL", "URGENT"].includes(val);
 }
 
-/**
- * Algoritmo determinista de planificacion en caso de no disponer de API Key o como fallback
- */
-function deterministicPlanner(
+function deterministicOperationsSchedule(
   targetDate: Date,
-  tasks: PendingTaskForPlanner[],
+  tasks: PendingTaskForSchedule[],
   freeSlots: FreeTimeSlot[]
-): PlanningAgentProposal {
+): OperationsAgentResult {
   const priorityWeight: Record<string, number> = {
     URGENT: 5,
     CRITICAL: 5,
@@ -34,7 +48,6 @@ function deterministicPlanner(
     LOW: 1,
   };
 
-  // Ordenar tareas por prioridad y deadline
   const sortedTasks = [...tasks].sort((a, b) => {
     const pDiff = (priorityWeight[b.priority] || 3) - (priorityWeight[a.priority] || 3);
     if (pDiff !== 0) return pDiff;
@@ -73,7 +86,7 @@ function deterministicPlanner(
           assignedStart: taskStart.toISOString(),
           assignedEnd: taskEnd.toISOString(),
           slotDurationMinutes: taskDuration,
-          rationale: `Asignada por prioridad ${task.priority} y ajuste en ventana disponible.`,
+          rationale: `Asignación óptima en bloque de ${slot.remainingMinutes} min por prioridad ${task.priority}.`,
         });
 
         slot.remainingMinutes -= taskDuration;
@@ -87,46 +100,44 @@ function deterministicPlanner(
       unassignedTasks.push({
         taskId: task.id,
         taskTitle: task.title,
-        reason: "No hay huecos disponibles de duracion suficiente en la agenda de hoy.",
+        reason: "Agenda ocupada o duración mayor a los intervalos libres disponibles.",
       });
     }
   }
 
+  const totalFreeMinutes = freeSlots.reduce((acc, s) => acc + s.durationMinutes, 0);
+
   return {
     generatedAt: new Date().toISOString(),
     targetDate: targetDate.toISOString().split("T")[0],
-    summary: `Planificacion calculada con ${assignments.length} tareas asignadas y ${unassignedTasks.length} pendientes.`,
-    totalTasksAnalyzed: tasks.length,
-    tasksAssignedCount: assignments.length,
+    scheduleSummary: `Planificación de operaciones completada: ${assignments.length} tareas asignadas en ${freeSlots.length} huecos libres (${totalFreeMinutes} min disponibles).`,
+    totalFreeMinutes,
+    freeSlotsCount: freeSlots.length,
+    tasksScheduledCount: assignments.length,
     unassignedTasksCount: unassignedTasks.length,
     assignments,
     unassignedTasks,
-    calendarFreeSlotsFound: freeSlots.length,
-    recommendations: [
-      "Completar primero las tareas asignadas antes de aceptar nuevos compromisos.",
-      "Revisar las tareas no asignadas para reagendar en la siguiente jornada.",
+    operationalRecommendations: [
+      "Ejecutar primero las tareas asignadas en las ventanas matutinas de mayor concentración.",
+      "Revisar las tareas no programadas para transferir a la siguiente jornada.",
     ],
   };
 }
 
-/**
- * Ejecuta el Agente de Planificacion usando Google Gemini
- */
-export async function runPlanningAgent(
+export async function runOperationsAgent(
   targetDateInput?: Date | string,
-  triggerType: "MANUAL" | "CRON" | "EVENT" = "MANUAL"
-): Promise<PlanningAgentProposal> {
+  triggerType: "MANUAL" | "CRON" | "EVENT" | "PIPELINE" = "MANUAL"
+): Promise<OperationsAgentResult> {
   const startTime = Date.now();
   const targetDate = targetDateInput ? new Date(targetDateInput) : new Date();
 
-  // 1. Obtener tareas pendientes
   const pendingTasks = await prisma.task.findMany({
     where: {
       status: { in: ["PENDING", "IN_PROGRESS"] },
     },
     include: {
       project: {
-        select: { id: true, name: true },
+        select: { id: true, name: true, category: true },
       },
     },
     orderBy: [
@@ -136,55 +147,48 @@ export async function runPlanningAgent(
     ],
   });
 
-  // 2. Obtener eventos de calendario del dia
-  const startOfDay = new Date(targetDate);
-  startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date(targetDate);
-  endOfDay.setHours(23, 59, 59, 999);
-
-  const fixedEvents = await prisma.calendarEvent.findMany({
-    where: {
-      startTime: { lte: endOfDay },
-      endTime: { gte: startOfDay },
-      status: { not: "CANCELLED" },
-    },
-    orderBy: { startTime: "asc" },
-  });
-
-  // 3. Calcular huecos libres reales
   const freeSlots = await calculateFreeSlotsForDate(targetDate);
-
   const apiKey = process.env.GEMINI_API_KEY;
 
-  // Si no hay clave de Gemini o es placeholder, usar el planificador determinista
   if (!apiKey || apiKey.includes("tu_clave") || apiKey.trim() === "") {
-    const proposal = deterministicPlanner(targetDate, pendingTasks, freeSlots);
+    const result = deterministicOperationsSchedule(targetDate, pendingTasks, freeSlots);
     const executionTimeMs = Date.now() - startTime;
 
+    if (result.assignments.length > 0) {
+      await prisma.aiAction.create({
+        data: {
+          agentName: "OPERATIONS",
+          title: "Reagendación de tareas en huecos de Google Calendar",
+          description: `Se han distribuido ${result.tasksScheduledCount} tareas en ${result.freeSlotsCount} ventanas libres de hoy.`,
+          category: "operations",
+          actionType: "CALENDAR_RESCHEDULE",
+          payload: JSON.stringify(result.assignments),
+          status: "PENDING_REVIEW",
+        },
+      });
+    }
+
     await logAgentRun({
-      agentName: "PLANNING_AGENT",
+      agentName: "OPERATIONS",
       triggerType,
       inputPayload: {
         targetDate: targetDate.toISOString(),
         pendingTasksCount: pendingTasks.length,
-        fixedEventsCount: fixedEvents.length,
         freeSlotsCount: freeSlots.length,
-        engine: "DETERMINISTIC_FALLBACK",
+        engine: "DETERMINISTIC",
       },
-      outputPayload: proposal as unknown as Record<string, unknown>,
+      outputPayload: result as unknown as Record<string, unknown>,
       tokensUsed: 0,
       costEstimate: 0.0,
       status: "SUCCESS",
       executionTimeMs,
     });
 
-    return proposal;
+    return result;
   }
 
-  // 4. Inferencia con Google Gemini
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
-
     const model = genAI.getGenerativeModel({
       model: "gemini-2.5-flash",
       generationConfig: {
@@ -192,7 +196,7 @@ export async function runPlanningAgent(
         responseSchema: {
           type: SchemaType.OBJECT,
           properties: {
-            summary: { type: SchemaType.STRING },
+            scheduleSummary: { type: SchemaType.STRING },
             assignments: {
               type: SchemaType.ARRAY,
               items: {
@@ -232,36 +236,28 @@ export async function runPlanningAgent(
                 required: ["taskId", "taskTitle", "reason"],
               },
             },
-            recommendations: {
+            operationalRecommendations: {
               type: SchemaType.ARRAY,
               items: { type: SchemaType.STRING },
             },
           },
-          required: ["summary", "assignments", "unassignedTasks", "recommendations"],
+          required: [
+            "scheduleSummary",
+            "assignments",
+            "unassignedTasks",
+            "operationalRecommendations",
+          ],
         },
       },
-      systemInstruction: `Eres el Agente de Planificacion de AI Life OS, un sistema operativo personal de alto rendimiento.
-Tu objetivo es analizar las tareas pendientes del usuario (con sus prioridades, duraciones estimadas y deadlines) y cruzarlas con los eventos fijos de Google Calendar y los huecos libres calculados para hoy.
-
-Reglas estrictas:
-1. Nunca solapes tareas con eventos fijos del calendario.
-2. Respeta la duracion estimada de cada tarea.
-3. Prioriza tareas con fecha limite proxima o prioridad URGENT/HIGH.
-4. Si una tarea no cabe en los huecos disponibles, marcala en unassignedTasks con la razon exacta.
-5. Proporciona siempre una justificacion concisa y profesional para cada asignacion.
-6. Prohibido terminantemente el uso de emojis en cualquier texto, resumen o recomendacion.`,
+      systemInstruction: `Eres el OperationsAgent de AI Life OS.
+Tu misión es distribuir tareas pendientes en los huecos libres calculados de Google Calendar sin solapamientos.
+Respeta duraciones estimadas, prioridades (URGENT/HIGH primero) y límites de jornada laboral.
+Cero emojis. Tono institucional, riguroso y técnico.`,
     });
 
-    const userPrompt = JSON.stringify({
+    const userPayload = JSON.stringify({
       targetDate: targetDate.toISOString().split("T")[0],
-      fixedEvents: fixedEvents.map((e) => ({
-        id: e.id,
-        summary: e.summary,
-        start: e.startTime.toISOString(),
-        end: e.endTime.toISOString(),
-        isAllDay: e.isAllDay,
-      })),
-      calculatedFreeSlots: freeSlots.map((s) => ({
+      freeSlots: freeSlots.map((s) => ({
         start: s.start.toISOString(),
         end: s.end.toISOString(),
         durationMinutes: s.durationMinutes,
@@ -271,25 +267,23 @@ Reglas estrictas:
         title: t.title,
         projectName: t.project?.name || null,
         priority: t.priority,
-        deadline: t.deadline ? t.deadline.toISOString() : null,
         estimatedDurationMinutes: t.estimatedDuration,
-        type: t.type,
+        deadline: t.deadline ? t.deadline.toISOString() : null,
       })),
     });
 
-    const result = await model.generateContent(
-      `Analiza la siguiente jornada y genera el plan estructurado de trabajo:\n${userPrompt}`
+    const response = await model.generateContent(
+      `Calcula la distribución operativa de tareas en la agenda:\n${userPayload}`
     );
 
-    const responseText = result.response.text();
-    const parsedData = JSON.parse(responseText) as Partial<PlanningAgentProposal>;
-    const baseProposal = deterministicPlanner(targetDate, pendingTasks, freeSlots);
+    const parsed = JSON.parse(response.response.text()) as Partial<OperationsAgentResult>;
+    const baseResult = deterministicOperationsSchedule(targetDate, pendingTasks, freeSlots);
 
-    const rawAssignments = Array.isArray(parsedData.assignments) && parsedData.assignments.length > 0
-      ? parsedData.assignments
-      : baseProposal.assignments;
+    const rawAssignments = Array.isArray(parsed.assignments) && parsed.assignments.length > 0
+      ? parsed.assignments
+      : baseResult.assignments;
 
-    const validatedAssignments: PlannedTaskAssignment[] = rawAssignments.map((a) => ({
+    const finalAssignments: PlannedTaskAssignment[] = rawAssignments.map((a) => ({
       taskId: a.taskId,
       taskTitle: a.taskTitle,
       projectId: a.projectId || null,
@@ -299,56 +293,74 @@ Reglas estrictas:
       assignedStart: a.assignedStart,
       assignedEnd: a.assignedEnd,
       slotDurationMinutes: typeof a.slotDurationMinutes === "number" ? a.slotDurationMinutes : 30,
-      rationale: a.rationale || "Asignación en ventana calculada.",
+      rationale: a.rationale || "Asignación en ventana disponible.",
     }));
 
-    const proposal: PlanningAgentProposal = {
+    const totalFreeMinutes = freeSlots.reduce((acc, s) => acc + s.durationMinutes, 0);
+
+    const finalResult: OperationsAgentResult = {
       generatedAt: new Date().toISOString(),
       targetDate: targetDate.toISOString().split("T")[0],
-      summary: parsedData.summary || baseProposal.summary,
-      totalTasksAnalyzed: pendingTasks.length,
-      tasksAssignedCount: validatedAssignments.length,
-      unassignedTasksCount: Array.isArray(parsedData.unassignedTasks) ? parsedData.unassignedTasks.length : baseProposal.unassignedTasksCount,
-      assignments: validatedAssignments,
-      unassignedTasks: Array.isArray(parsedData.unassignedTasks) ? parsedData.unassignedTasks : baseProposal.unassignedTasks,
-      calendarFreeSlotsFound: freeSlots.length,
-      recommendations: Array.isArray(parsedData.recommendations) ? parsedData.recommendations : baseProposal.recommendations,
+      scheduleSummary: parsed.scheduleSummary || baseResult.scheduleSummary,
+      totalFreeMinutes,
+      freeSlotsCount: freeSlots.length,
+      tasksScheduledCount: finalAssignments.length,
+      unassignedTasksCount: Array.isArray(parsed.unassignedTasks) ? parsed.unassignedTasks.length : baseResult.unassignedTasksCount,
+      assignments: finalAssignments,
+      unassignedTasks: Array.isArray(parsed.unassignedTasks) ? parsed.unassignedTasks : baseResult.unassignedTasks,
+      operationalRecommendations: Array.isArray(parsed.operationalRecommendations)
+        ? parsed.operationalRecommendations
+        : baseResult.operationalRecommendations,
     };
 
-    const tokensUsed = result.response.usageMetadata?.totalTokenCount || 0;
+    if (finalResult.assignments.length > 0) {
+      await prisma.aiAction.create({
+        data: {
+          agentName: "OPERATIONS",
+          title: "Reagendación de tareas en huecos de Google Calendar",
+          description: `Se han distribuido ${finalResult.tasksScheduledCount} tareas en ${finalResult.freeSlotsCount} ventanas libres de hoy.`,
+          category: "operations",
+          actionType: "CALENDAR_RESCHEDULE",
+          payload: JSON.stringify(finalResult.assignments),
+          status: "PENDING_REVIEW",
+        },
+      });
+    }
+
+    const tokensUsed = response.response.usageMetadata?.totalTokenCount || 0;
     const executionTimeMs = Date.now() - startTime;
 
     await logAgentRun({
-      agentName: "PLANNING_AGENT",
+      agentName: "OPERATIONS",
       triggerType,
       inputPayload: {
         targetDate: targetDate.toISOString(),
         pendingTasksCount: pendingTasks.length,
-        fixedEventsCount: fixedEvents.length,
+        freeSlotsCount: freeSlots.length,
         engine: "GOOGLE_GEMINI_2_5_FLASH",
       },
-      outputPayload: proposal as unknown as Record<string, unknown>,
+      outputPayload: finalResult as unknown as Record<string, unknown>,
       tokensUsed,
       costEstimate: 0.0,
       status: "SUCCESS",
       executionTimeMs,
     });
 
-    return proposal;
+    return finalResult;
   } catch (error) {
-    console.error("Error en ejecucion de Agente de Planificacion con Gemini:", error);
-    const proposal = deterministicPlanner(targetDate, pendingTasks, freeSlots);
+    console.error("Error en OperationsAgent con Gemini:", error);
+    const fallbackResult = deterministicOperationsSchedule(targetDate, pendingTasks, freeSlots);
     const executionTimeMs = Date.now() - startTime;
 
     await logAgentRun({
-      agentName: "PLANNING_AGENT",
+      agentName: "OPERATIONS",
       triggerType,
       inputPayload: {
         targetDate: targetDate.toISOString(),
         pendingTasksCount: pendingTasks.length,
         fallbackActive: true,
       },
-      outputPayload: proposal as unknown as Record<string, unknown>,
+      outputPayload: fallbackResult as unknown as Record<string, unknown>,
       tokensUsed: 0,
       costEstimate: 0.0,
       status: "FAILED",
@@ -356,6 +368,6 @@ Reglas estrictas:
       executionTimeMs,
     });
 
-    return proposal;
+    return fallbackResult;
   }
 }

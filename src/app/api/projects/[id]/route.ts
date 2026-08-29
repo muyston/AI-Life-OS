@@ -1,10 +1,16 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { apiSuccess, apiError, handleApiError } from "@/lib/api-response";
+import { UpdateProjectSchema } from "@/lib/validations/schemas";
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+interface RouteContext {
+  params: { id: string };
+}
+
+export async function GET(request: NextRequest, { params }: RouteContext) {
   try {
     const project = await prisma.project.findUnique({
       where: { id: params.id },
@@ -16,66 +22,62 @@ export async function GET(
     });
 
     if (!project) {
-      return NextResponse.json(
-        { success: false, error: "Proyecto no encontrado." },
-        { status: 404 }
-      );
+      return apiError("Proyecto no encontrado.", { status: 404 });
     }
 
-    return NextResponse.json({ success: true, data: project });
+    return apiSuccess(project);
   } catch (error) {
-    console.error("Error al obtener detalle de proyecto:", error);
-    return NextResponse.json(
-      { success: false, error: "Error interno al recuperar el proyecto." },
-      { status: 500 }
-    );
+    return handleApiError(error, "Error al recuperar el proyecto.");
   }
 }
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function PATCH(request: NextRequest, { params }: RouteContext) {
   try {
-    const body = await request.json();
-    const { name, description, repoUrl, status, priority } = body;
+    const json = await request.json().catch(() => ({}));
+    const validated = UpdateProjectSchema.parse(json);
+
+    const existing = await prisma.project.findUnique({
+      where: { id: params.id },
+    });
+
+    if (!existing) {
+      return apiError("Proyecto no encontrado.", { status: 404 });
+    }
 
     const updated = await prisma.project.update({
       where: { id: params.id },
       data: {
-        ...(name !== undefined && { name: name.trim() }),
-        ...(description !== undefined && { description: description?.trim() || null }),
-        ...(repoUrl !== undefined && { repoUrl: repoUrl?.trim() || null }),
-        ...(status !== undefined && { status }),
-        ...(priority !== undefined && { priority }),
+        ...(validated.name !== undefined && { name: validated.name.trim() }),
+        ...(validated.description !== undefined && { description: validated.description?.trim() || null }),
+        ...(validated.repoUrl !== undefined && { repoUrl: validated.repoUrl?.trim() || null }),
+        ...(validated.category !== undefined && { category: validated.category }),
+        ...(validated.status !== undefined && { status: validated.status }),
+        ...(validated.priority !== undefined && { priority: validated.priority }),
       },
     });
 
-    return NextResponse.json({ success: true, data: updated });
+    return apiSuccess(updated, { message: "Proyecto actualizado correctamente." });
   } catch (error) {
-    console.error("Error al actualizar proyecto:", error);
-    return NextResponse.json(
-      { success: false, error: "Error interno al actualizar el proyecto." },
-      { status: 500 }
-    );
+    return handleApiError(error, "Error al actualizar el proyecto.");
   }
 }
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(request: NextRequest, { params }: RouteContext) {
   try {
+    const existing = await prisma.project.findUnique({
+      where: { id: params.id },
+    });
+
+    if (!existing) {
+      return apiError("Proyecto no encontrado.", { status: 404 });
+    }
+
     await prisma.project.delete({
       where: { id: params.id },
     });
 
-    return NextResponse.json({ success: true, message: "Proyecto eliminado correctamente." });
+    return apiSuccess({ id: params.id }, { message: "Proyecto eliminado correctamente." });
   } catch (error) {
-    console.error("Error al eliminar proyecto:", error);
-    return NextResponse.json(
-      { success: false, error: "Error interno al eliminar el proyecto." },
-      { status: 500 }
-    );
+    return handleApiError(error, "Error al eliminar el proyecto.");
   }
 }

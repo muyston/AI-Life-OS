@@ -1,7 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { apiSuccess, handleApiError } from "@/lib/api-response";
+import { CreateTaskSchema } from "@/lib/validations/schemas";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,12 +18,12 @@ export async function GET(request: NextRequest) {
       where: {
         ...(status && status !== "ALL" ? { status } : {}),
         ...(projectId ? { projectId } : {}),
-        ...(priority ? { priority } : {}),
-        ...(type ? { type } : {}),
+        ...(priority && priority !== "ALL" ? { priority } : {}),
+        ...(type && type !== "ALL" ? { type } : {}),
       },
       include: {
         project: {
-          select: { id: true, name: true },
+          select: { id: true, name: true, category: true },
         },
       },
       orderBy: [
@@ -30,67 +33,40 @@ export async function GET(request: NextRequest) {
       ],
     });
 
-    return NextResponse.json({ success: true, data: tasks });
+    return apiSuccess(tasks);
   } catch (error) {
-    console.error("Error al obtener tareas:", error);
-    return NextResponse.json(
-      { success: false, error: "Error interno al recuperar tareas." },
-      { status: 500 }
-    );
+    return handleApiError(error, "Error al recuperar las tareas del sistema.");
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const {
-      title,
-      description,
-      projectId,
-      type,
-      priority,
-      status,
-      deadline,
-      estimatedDuration,
-      origin,
-      scheduledStart,
-      scheduledEnd,
-    } = body;
-
-    if (!title || typeof title !== "string" || title.trim().length === 0) {
-      return NextResponse.json(
-        { success: false, error: "El titulo de la tarea es obligatorio." },
-        { status: 400 }
-      );
-    }
+    const json = await request.json().catch(() => ({}));
+    const validated = CreateTaskSchema.parse(json);
 
     const task = await prisma.task.create({
       data: {
-        title: title.trim(),
-        description: description?.trim() || null,
-        projectId: projectId || null,
-        type: type || "NORMAL",
-        priority: priority || "MEDIUM",
-        status: status || "PENDING",
-        deadline: deadline ? new Date(deadline) : null,
-        estimatedDuration: Number(estimatedDuration) || 30,
-        origin: origin || "MANUAL",
-        scheduledStart: scheduledStart ? new Date(scheduledStart) : null,
-        scheduledEnd: scheduledEnd ? new Date(scheduledEnd) : null,
+        title: validated.title.trim(),
+        description: validated.description?.trim() || null,
+        projectId: validated.projectId || null,
+        type: validated.type,
+        priority: validated.priority,
+        status: validated.status,
+        deadline: validated.deadline ? new Date(validated.deadline) : null,
+        estimatedDuration: validated.estimatedDuration,
+        origin: validated.origin,
+        scheduledStart: validated.scheduledStart ? new Date(validated.scheduledStart) : null,
+        scheduledEnd: validated.scheduledEnd ? new Date(validated.scheduledEnd) : null,
       },
       include: {
         project: {
-          select: { id: true, name: true },
+          select: { id: true, name: true, category: true },
         },
       },
     });
 
-    return NextResponse.json({ success: true, data: task }, { status: 201 });
+    return apiSuccess(task, { status: 201, message: "Tarea creada correctamente." });
   } catch (error) {
-    console.error("Error al crear tarea:", error);
-    return NextResponse.json(
-      { success: false, error: "Error interno al crear la tarea." },
-      { status: 500 }
-    );
+    return handleApiError(error, "Error al crear la tarea.");
   }
 }

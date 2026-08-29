@@ -1,5 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { syncCalendar, seedDemoCalendarEvents } from "@/lib/calendar/google-calendar";
+import { apiSuccess, handleApiError } from "@/lib/api-response";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function POST(request: NextRequest) {
   try {
@@ -8,25 +12,22 @@ export async function POST(request: NextRequest) {
 
     if (action === "seed_demo") {
       const count = await seedDemoCalendarEvents();
-      return NextResponse.json({
-        success: true,
-        message: `Se han configurado ${count} eventos iniciales de prueba en la agenda.`,
-        eventsSynced: count,
-        source: "DEMO_SEED",
-      });
+      return apiSuccess(
+        {
+          eventsSynced: count,
+          source: "DEMO_SEED",
+        },
+        {
+          message: `Se han configurado ${count} eventos iniciales de prueba en la agenda.`,
+        }
+      );
     }
 
     const result = await syncCalendar();
-    return NextResponse.json(result);
+    return apiSuccess(result, {
+      message: result.message,
+    });
   } catch (error) {
-    console.error("Error al sincronizar calendario:", error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Error interno al sincronizar el calendario.",
-        details: error instanceof Error ? error.message : String(error),
-      },
-      { status: 500 }
-    );
+    return handleApiError(error, "Error interno al sincronizar el calendario.");
   }
 }

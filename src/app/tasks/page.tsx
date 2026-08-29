@@ -54,7 +54,7 @@ export default function TasksPage() {
   }, []);
 
   const handleStatusToggle = async (taskId: string, currentStatus: string) => {
-    const nextStatus = currentStatus === "COMPLETED" ? "PENDING" : "COMPLETED";
+    const nextStatus: TaskStatus = currentStatus === "COMPLETED" ? "PENDING" : "COMPLETED";
     try {
       const res = await fetch(`/api/tasks/${taskId}`, {
         method: "PATCH",
@@ -63,7 +63,7 @@ export default function TasksPage() {
       });
       if (res.ok) {
         setTasks((prev) =>
-          prev.map((t) => (t.id === taskId ? { ...t, status: nextStatus as any } : t))
+          prev.map((t) => (t.id === taskId ? { ...t, status: nextStatus } : t))
         );
       }
     } catch (err) {

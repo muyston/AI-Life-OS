@@ -1,74 +1,79 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { apiSuccess, handleApiError } from "@/lib/api-response";
+import { CreateProjectSchema } from "@/lib/validations/schemas";
 
-export async function GET() {
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+export async function GET(request: NextRequest) {
   try {
+    const { searchParams } = new URL(request.url);
+    const category = searchParams.get("category");
+    const status = searchParams.get("status");
+
     const projects = await prisma.project.findMany({
+      where: {
+        ...(category && category !== "ALL" ? { category } : {}),
+        ...(status && status !== "ALL" ? { status } : {}),
+      },
       orderBy: { updatedAt: "desc" },
       include: {
         tasks: {
           select: {
             id: true,
+            title: true,
             status: true,
+            priority: true,
+            deadline: true,
+            estimatedDuration: true,
           },
         },
       },
     });
 
-    const formatted = projects.map(p => ({
+    const formatted = projects.map((p) => ({
       id: p.id,
       name: p.name,
       description: p.description,
       repoUrl: p.repoUrl,
+      category: p.category,
       status: p.status,
       priority: p.priority,
       createdAt: p.createdAt,
       updatedAt: p.updatedAt,
+      tasks: p.tasks,
       tasksCount: {
         total: p.tasks.length,
-        pending: p.tasks.filter(t => t.status === "PENDING" || t.status === "IN_PROGRESS").length,
-        completed: p.tasks.filter(t => t.status === "COMPLETED").length,
+        pending: p.tasks.filter((t) => t.status === "PENDING" || t.status === "IN_PROGRESS").length,
+        completed: p.tasks.filter((t) => t.status === "COMPLETED").length,
       },
     }));
 
-    return NextResponse.json({ success: true, data: formatted });
+    return apiSuccess(formatted);
   } catch (error) {
-    console.error("Error al obtener proyectos:", error);
-    return NextResponse.json(
-      { success: false, error: "Error interno al recuperar proyectos." },
-      { status: 500 }
-    );
+    return handleApiError(error, "Error al recuperar los proyectos del sistema.");
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { name, description, repoUrl, status, priority } = body;
-
-    if (!name || typeof name !== "string" || name.trim().length === 0) {
-      return NextResponse.json(
-        { success: false, error: "El nombre del proyecto es obligatorio." },
-        { status: 400 }
-      );
-    }
+    const json = await request.json().catch(() => ({}));
+    const validated = CreateProjectSchema.parse(json);
 
     const project = await prisma.project.create({
       data: {
-        name: name.trim(),
-        description: description?.trim() || null,
-        repoUrl: repoUrl?.trim() || null,
-        status: status || "ACTIVE",
-        priority: priority || "MEDIUM",
+        name: validated.name.trim(),
+        description: validated.description?.trim() || null,
+        repoUrl: validated.repoUrl?.trim() || null,
+        category: validated.category,
+        status: validated.status,
+        priority: validated.priority,
       },
     });
 
-    return NextResponse.json({ success: true, data: project }, { status: 201 });
+    return apiSuccess(project, { status: 201, message: "Proyecto creado exitosamente." });
   } catch (error) {
-    console.error("Error al crear proyecto:", error);
-    return NextResponse.json(
-      { success: false, error: "Error interno al crear el proyecto." },
-      { status: 500 }
-    );
+    return handleApiError(error, "Error al crear el proyecto.");
   }
 }

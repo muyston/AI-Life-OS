@@ -10,6 +10,8 @@
 # Base de datos local
 prisma/*.db
 prisma/*.db-journal
+*.db
+*.db-journal
 *.sqlite
 *.sqlite3
 
@@ -29,3 +31,5 @@ yarn-error.log*
 # Sistema
 .DS_Store
 Thumbs.db
+
+.vercel

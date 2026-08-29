@@ -2,7 +2,7 @@ import { prisma } from "../prisma";
 
 interface LogAgentRunOptions {
   agentName: string;
-  triggerType: "MANUAL" | "CRON" | "EVENT";
+  triggerType: "MANUAL" | "CRON" | "EVENT" | "PIPELINE";
   inputPayload?: Record<string, unknown> | null;
   outputPayload?: Record<string, unknown> | null;
   tokensUsed?: number;

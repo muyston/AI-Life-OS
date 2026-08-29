@@ -7,10 +7,33 @@ export interface SyncCalendarResult {
   eventsSynced: number;
   message: string;
   source: "ICAL_URL" | "GOOGLE_API" | "MOCK";
+  details?: {
+    singleEvents: number;
+    recurringInstances: number;
+  };
+}
+
+/**
+ * Convierte o asegura que una fecha esté ajustada a la referencia de inicio del día
+ */
+function getStartOfDayInMadrid(d: Date): Date {
+  const dt = new Date(d);
+  dt.setHours(0, 0, 0, 0);
+  return dt;
+}
+
+/**
+ * Convierte o asegura que una fecha esté ajustada a la referencia de fin del día
+ */
+function getEndOfDayInMadrid(d: Date): Date {
+  const dt = new Date(d);
+  dt.setHours(23, 59, 59, 999);
+  return dt;
 }
 
 /**
  * Sincroniza eventos de Google Calendar a traves del enlace privado iCal (ICS)
+ * con soporte estricto de eventos recurrentes (rrule), exclusiones (exdate) y zona horaria.
  */
 export async function syncEventsFromIcal(icalUrl?: string): Promise<SyncCalendarResult> {
   const url = icalUrl || process.env.GOOGLE_CALENDAR_ICAL_URL;
@@ -19,31 +42,157 @@ export async function syncEventsFromIcal(icalUrl?: string): Promise<SyncCalendar
     return {
       success: false,
       eventsSynced: 0,
-      message: "No se ha configurado GOOGLE_CALENDAR_ICAL_URL en el entorno.",
+      message: "No se ha configurado GOOGLE_CALENDAR_ICAL_URL en las variables de entorno.",
       source: "ICAL_URL",
     };
   }
 
   try {
-    const webEvents = await ical.async.fromURL(url);
-    let count = 0;
+    // 1. Descarga del feed ICS desactivando la cache de Vercel/Next.js
+    const response = await fetch(url, {
+      method: "GET",
+      cache: "no-store",
+      headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        Pragma: "no-cache",
+        Expires: "0",
+      },
+    });
 
-    for (const key in webEvents) {
-      if (!Object.prototype.hasOwnProperty.call(webEvents, key)) continue;
-      const ev = webEvents[key];
+    if (!response.ok) {
+      const is404 = response.status === 404;
+      const message = is404
+        ? "Google Calendar devolvio error 404. Asegurese de usar la 'Direccion secreta en formato iCal' (privada) desde los ajustes de Google Calendar."
+        : `Error HTTP ${response.status} al descargar el feed de Google Calendar.`;
 
-      if (ev.type === "VEVENT" && ev.start && ev.end) {
-        const externalId = ev.uid || key;
-        const summary = ev.summary || "Evento sin titulo";
-        const description = ev.description ? String(ev.description) : null;
-        const location = ev.location ? String(ev.location) : null;
+      console.warn("Advertencia de sincronizacion iCal:", message);
+      return {
+        success: false,
+        eventsSynced: 0,
+        message,
+        source: "ICAL_URL",
+      };
+    }
+
+    const icsText = await response.text();
+    const parsedEvents = ical.sync.parseICS(icsText);
+
+    // 2. Ventana de expansion para eventos recurrentes: 30 dias atras y 90 dias adelante
+    const now = new Date();
+    const windowStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const windowEnd = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+
+    let singleEventsCount = 0;
+    let recurringInstancesCount = 0;
+
+    for (const key in parsedEvents) {
+      if (!Object.prototype.hasOwnProperty.call(parsedEvents, key)) continue;
+      const ev = parsedEvents[key];
+
+      if (ev.type !== "VEVENT") continue;
+
+      const summary = ev.summary ? String(ev.summary).trim() : "Evento sin titulo";
+      const description = ev.description ? String(ev.description) : null;
+      const location = ev.location ? String(ev.location) : null;
+      const uid = ev.uid || key;
+
+      // Evento recurrente con regla rrule
+      if (ev.rrule && typeof ev.rrule.between === "function" && ev.start && ev.end) {
+        const originalDuration = new Date(ev.end).getTime() - new Date(ev.start).getTime();
+        const occurrences = ev.rrule.between(windowStart, windowEnd, true);
+
+        // Conjunto de fechas excluidas
+        const exdateMap = new Set<string>();
+        if (ev.exdate) {
+          if (Array.isArray(ev.exdate)) {
+            for (const ex of ev.exdate) {
+              const exDateStr = new Date(ex).toISOString().split("T")[0];
+              exdateMap.add(exDateStr);
+            }
+          } else if (typeof ev.exdate === "object") {
+            for (const k in ev.exdate) {
+              const exDateStr = new Date(ev.exdate[k]).toISOString().split("T")[0];
+              exdateMap.add(exDateStr);
+            }
+          }
+        }
+
+        for (const occ of occurrences) {
+          const occDate = new Date(occ);
+          const dateIsoKey = occDate.toISOString().split("T")[0];
+
+          // Si la fecha esta excluida expresamente, omitir
+          if (exdateMap.has(dateIsoKey)) {
+            continue;
+          }
+
+          // Verificar si existe una sobreescritura (recurrence override)
+          let occSummary = summary;
+          let occDesc = description;
+          let occLoc = location;
+          let occStart = occDate;
+          let occEnd = new Date(occStart.getTime() + originalDuration);
+
+          if (ev.recurrences && ev.recurrences[dateIsoKey]) {
+            const override = ev.recurrences[dateIsoKey];
+            if (override.summary) occSummary = String(override.summary);
+            if (override.description) occDesc = String(override.description);
+            if (override.location) occLoc = String(override.location);
+            if (override.start) occStart = new Date(override.start);
+            if (override.end) occEnd = new Date(override.end);
+          }
+
+          const isAllDay = (ev as { datetype?: string }).datetype === "date" || 
+            (occEnd.getTime() - occStart.getTime()) >= 86400000;
+
+          const externalId = `${uid}_${dateIsoKey}`;
+
+          await prisma.calendarEvent.upsert({
+            where: { externalId },
+            update: {
+              summary: occSummary,
+              description: occDesc,
+              startTime: occStart,
+              endTime: occEnd,
+              isAllDay,
+              location: occLoc,
+              status: "CONFIRMED",
+              rawData: JSON.stringify({
+                uid,
+                isRecurringInstance: true,
+                dateIsoKey,
+              }),
+              syncedAt: new Date(),
+            },
+            create: {
+              externalId,
+              summary: occSummary,
+              description: occDesc,
+              startTime: occStart,
+              endTime: occEnd,
+              isAllDay,
+              location: occLoc,
+              status: "CONFIRMED",
+              rawData: JSON.stringify({
+                uid,
+                isRecurringInstance: true,
+                dateIsoKey,
+              }),
+              syncedAt: new Date(),
+            },
+          });
+
+          recurringInstancesCount++;
+        }
+      } else if (ev.start && ev.end) {
+        // Evento puntual no recurrente
         const startTime = new Date(ev.start);
         const endTime = new Date(ev.end);
         const isAllDay = (ev as { datetype?: string }).datetype === "date" || 
           (endTime.getTime() - startTime.getTime()) >= 86400000;
 
         await prisma.calendarEvent.upsert({
-          where: { externalId },
+          where: { externalId: uid },
           update: {
             summary,
             description,
@@ -53,14 +202,14 @@ export async function syncEventsFromIcal(icalUrl?: string): Promise<SyncCalendar
             location,
             status: "CONFIRMED",
             rawData: JSON.stringify({
-              uid: ev.uid,
+              uid,
               created: ev.created,
               lastmodified: ev.lastmodified,
             }),
             syncedAt: new Date(),
           },
           create: {
-            externalId,
+            externalId: uid,
             summary,
             description,
             startTime,
@@ -69,32 +218,35 @@ export async function syncEventsFromIcal(icalUrl?: string): Promise<SyncCalendar
             location,
             status: "CONFIRMED",
             rawData: JSON.stringify({
-              uid: ev.uid,
+              uid,
               created: ev.created,
               lastmodified: ev.lastmodified,
             }),
             syncedAt: new Date(),
           },
         });
-        count++;
+
+        singleEventsCount++;
       }
     }
 
+    const totalSynced = singleEventsCount + recurringInstancesCount;
+
     return {
       success: true,
-      eventsSynced: count,
-      message: `Sincronizacion completada con exito. ${count} eventos sincronizados.`,
+      eventsSynced: totalSynced,
+      message: `Sincronizacion completada con exito. ${totalSynced} eventos procesados (${singleEventsCount} puntuales, ${recurringInstancesCount} instancias recurrentes).`,
       source: "ICAL_URL",
+      details: {
+        singleEvents: singleEventsCount,
+        recurringInstances: recurringInstancesCount,
+      },
     };
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    const is404 = errorMsg.includes("404") || (typeof error === "object" && error !== null && (error as { response?: { status?: number } }).response?.status === 404);
-    
-    const message = is404
-      ? "Google Calendar devolvio error 404. Si el calendario no es publico, usa la 'Direccion secreta en formato iCal' (private) desde la configuracion de Google Calendar."
-      : `Error al procesar el feed iCal: ${errorMsg}`;
+    const message = `Error al procesar el feed iCal: ${errorMsg}`;
 
-    console.warn("Advertencia al sincronizar feed iCal:", message);
+    console.error("Error critico en syncEventsFromIcal:", error);
     return {
       success: false,
       eventsSynced: 0,
@@ -106,6 +258,7 @@ export async function syncEventsFromIcal(icalUrl?: string): Promise<SyncCalendar
 
 /**
  * Calcula los huecos libres en un dia especifico dentro del horario laboral configurado (default: 08:30 a 19:30)
+ * ajustando a zona horaria Europe/Madrid.
  */
 export async function calculateFreeSlotsForDate(
   targetDate: Date,
@@ -114,13 +267,10 @@ export async function calculateFreeSlotsForDate(
   workDayEndHour = 19,
   workDayEndMinute = 30
 ): Promise<FreeTimeSlot[]> {
-  const startOfDay = new Date(targetDate);
-  startOfDay.setHours(0, 0, 0, 0);
+  const startOfDay = getStartOfDayInMadrid(targetDate);
+  const endOfDay = getEndOfDayInMadrid(targetDate);
 
-  const endOfDay = new Date(targetDate);
-  endOfDay.setHours(23, 59, 59, 999);
-
-  // Obtener eventos del dia
+  // Obtener eventos del dia que solapan con la fecha de interes
   const events = await prisma.calendarEvent.findMany({
     where: {
       startTime: { lte: endOfDay },

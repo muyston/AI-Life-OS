@@ -1,60 +1,48 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { runPlanningAgent } from "@/lib/agents/planning-agent";
 import { prisma } from "@/lib/prisma";
+import { apiSuccess, handleApiError } from "@/lib/api-response";
+import { ApplyPlanningSchema } from "@/lib/validations/schemas";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json().catch(() => ({}));
-    const { action, targetDate, assignments } = body as {
-      action?: "RUN" | "APPLY";
-      targetDate?: string;
-      assignments?: Array<{
-        taskId: string;
-        assignedStart: string;
-        assignedEnd: string;
-      }>;
-    };
+    const json = await request.json().catch(() => ({}));
+    const validated = ApplyPlanningSchema.parse(json);
 
-    if (action === "APPLY" && Array.isArray(assignments)) {
-      // Aplicar el plan confirmado por el usuario en la base de datos
-      let appliedCount = 0;
-      for (const item of assignments) {
-        if (item.taskId && item.assignedStart && item.assignedEnd) {
-          await prisma.task.update({
-            where: { id: item.taskId },
-            data: {
-              scheduledStart: new Date(item.assignedStart),
-              scheduledEnd: new Date(item.assignedEnd),
-              status: "IN_PROGRESS",
-            },
-          });
-          appliedCount++;
+    if (validated.action === "APPLY" && Array.isArray(validated.assignments) && validated.assignments.length > 0) {
+      // Aplicar el plan confirmado por el usuario en una transacción atómica
+      const appliedCount = await prisma.$transaction(async (tx) => {
+        let count = 0;
+        for (const item of validated.assignments!) {
+          if (item.taskId && item.assignedStart && item.assignedEnd) {
+            await tx.task.update({
+              where: { id: item.taskId },
+              data: {
+                scheduledStart: new Date(item.assignedStart),
+                scheduledEnd: new Date(item.assignedEnd),
+                status: "IN_PROGRESS",
+              },
+            });
+            count++;
+          }
         }
-      }
-
-      return NextResponse.json({
-        success: true,
-        message: `Plan aplicado con éxito a ${appliedCount} tareas.`,
-        appliedCount,
+        return count;
       });
+
+      return apiSuccess(
+        { appliedCount },
+        { message: `Plan aplicado con éxito a ${appliedCount} tareas.` }
+      );
     }
 
-    // Ejecutar el agente de planificacion
-    const proposal = await runPlanningAgent(targetDate, "MANUAL");
+    // Ejecutar el agente de planificación
+    const proposal = await runPlanningAgent(validated.targetDate, "MANUAL");
 
-    return NextResponse.json({
-      success: true,
-      data: proposal,
-    });
+    return apiSuccess(proposal);
   } catch (error) {
-    console.error("Error en API de Agente de Planificacion:", error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Error interno al ejecutar el Agente de Planificación.",
-        details: error instanceof Error ? error.message : String(error),
-      },
-      { status: 500 }
-    );
+    return handleApiError(error, "Error al ejecutar el Agente de Planificación.");
   }
 }

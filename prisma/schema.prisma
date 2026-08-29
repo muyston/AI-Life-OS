@@ -12,6 +12,7 @@ model Project {
   name        String
   description String?
   repoUrl     String?
+  category    String   @default("tech") // tech, business, academic, performance, personal
   status      String   @default("ACTIVE") // ACTIVE, ON_HOLD, COMPLETED, ARCHIVED
   priority    String   @default("MEDIUM") // LOW, MEDIUM, HIGH, CRITICAL
   createdAt   DateTime @default(now())
@@ -19,6 +20,9 @@ model Project {
 
   tasks Task[]
 
+  @@index([category])
+  @@index([status])
+  @@index([category, status])
   @@map("projects")
 }
 
@@ -44,6 +48,9 @@ model Task {
   @@index([status])
   @@index([deadline])
   @@index([projectId])
+  @@index([status, priority])
+  @@index([projectId, status])
+  @@index([scheduledStart, scheduledEnd])
   @@map("tasks")
 }
 
@@ -96,8 +103,8 @@ model MiniApp {
 
 model AgentRun {
   id              String   @id @default(cuid())
-  agentName       String   // PLANNING_AGENT, CAPTURE_AGENT, PATTERN_AGENT, BRIEFING_AGENT, MINI_APP_GENERATOR
-  triggerType     String   // MANUAL, CRON, EVENT
+  agentName       String   // ORCHESTRATOR, STRATEGY, SALES, DEV, OPERATIONS, PLANNING_AGENT, etc.
+  triggerType     String   // MANUAL, CRON, EVENT, PIPELINE
   inputPayload    String?  // JSON string
   outputPayload   String?  // JSON string
   tokensUsed      Int      @default(0)
@@ -109,5 +116,42 @@ model AgentRun {
 
   @@index([agentName])
   @@index([createdAt])
+  @@index([agentName, createdAt])
   @@map("agent_runs")
+}
+
+model AiAction {
+  id          String   @id @default(cuid())
+  agentName   String   // ORCHESTRATOR, STRATEGY, SALES, DEV, OPERATIONS
+  title       String
+  description String
+  category    String   @default("tech") // tech, business, academic, performance, personal, operations
+  actionType  String   // TASK_PROPOSAL, CALENDAR_RESCHEDULE, CODE_SNIPPET, OUTREACH_DRAFT, STRATEGY_ALERT
+  payload     String?  // JSON string con datos para ejecución
+  status      String   @default("PENDING_REVIEW") // PENDING_REVIEW, APPROVED, REJECTED, EXECUTED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+  @@index([agentName])
+  @@index([category])
+  @@index([status, agentName])
+  @@map("ai_actions")
+}
+
+model Idea {
+  id            String   @id @default(cuid())
+  rawContent    String
+  category      String   @default("general") // tech, business, personal, academic, performance, general
+  status        String   @default("RAW") // RAW, PROCESSING, COMPLETED, FAILED
+  assignedAgent String   @default("general") // strategy, dev, sales, operations, general
+  analysis      String?  // JSON serializado con resumen, investigacion, viabilidad/datos, acciones recomendadas
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([status])
+  @@index([category])
+  @@index([assignedAgent])
+  @@index([status, assignedAgent])
+  @@map("ideas")
 }
