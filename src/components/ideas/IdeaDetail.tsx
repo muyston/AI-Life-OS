@@ -32,6 +32,8 @@ import {
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { ConvertModal } from "./ConvertModal";
+import { MultiSolutionMatrix } from "./MultiSolutionMatrix";
+import { deterministicSolverAnalysis } from "@/lib/agents/solverAgent";
 
 interface IdeaDetailProps {
   idea: IdeaEntity | null;
@@ -310,86 +312,57 @@ export function IdeaDetail({
             </div>
           </div>
         ) : analysis ? (
-          <div className="space-y-5">
-            {/* Executive Summary */}
-            <div className="bg-surface-950 border border-surface-800 rounded-lg p-4 space-y-2">
-              <div className="flex items-center gap-2 text-surface-400 text-xs font-semibold uppercase tracking-wide">
-                <ShieldCheck className="w-4 h-4 text-brand-500" />
-                <span>Diagnostico y Resumen Ejecutivo</span>
-              </div>
-              <p className="text-xs text-surface-200 leading-relaxed">
-                {analysis.executiveSummary}
-              </p>
-            </div>
+          <div className="space-y-6">
+            {/* Multi-Solution Solver Matrix (Primary Decision Engine) */}
+            <MultiSolutionMatrix
+              ideaId={idea.id}
+              analysis={analysis.solverAnalysis || deterministicSolverAnalysis(idea.rawContent, idea.category)}
+              onSolutionApplied={onConverted}
+              isProcessing={isProcessing}
+            />
 
-            {/* Research & Viability */}
-            <div className="bg-surface-950 border border-surface-800 rounded-lg p-4 space-y-3">
-              <div className="flex items-center gap-2 text-surface-400 text-xs font-semibold uppercase tracking-wide">
-                <FileText className="w-4 h-4 text-accent-400" />
-                <span>Investigacion y Viabilidad Operativa</span>
-              </div>
-              <p className="text-xs text-surface-200 leading-relaxed">
-                {analysis.researchAndViability}
-              </p>
-
-              {analysis.keyInsights && analysis.keyInsights.length > 0 && (
-                <div className="pt-2 border-t border-surface-800/80 space-y-1.5">
-                  <span className="text-[11px] font-semibold text-surface-400 uppercase tracking-wider block">
-                    Puntos Clave Identificados:
-                  </span>
-                  <ul className="space-y-1">
-                    {analysis.keyInsights.map((insight, idx) => (
-                      <li key={idx} className="flex items-start gap-2 text-xs text-surface-300">
-                        <ChevronRight className="w-3.5 h-3.5 text-surface-400 shrink-0 mt-0.5" />
-                        <span>{insight}</span>
-                      </li>
-                    ))}
-                  </ul>
+            {/* Complementary Diagnostic Details (Collapsible / Secondary) */}
+            <details className="bg-surface-950/60 border border-surface-800 rounded-lg p-4 space-y-4 group">
+              <summary className="text-xs font-semibold text-surface-400 uppercase tracking-wider cursor-pointer list-none flex items-center justify-between hover:text-surface-200">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-accent-400" />
+                  <span>Diagnóstico Adicional & Viabilidad de Especialista</span>
                 </div>
-              )}
-            </div>
+                <span className="text-[10px] font-mono text-surface-500 group-open:rotate-90 transition-transform">
+                  &gt;
+                </span>
+              </summary>
 
-            {/* Recommended Action Steps */}
-            <div className="bg-surface-950 border border-surface-800 rounded-lg p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-surface-400 text-xs font-semibold uppercase tracking-wide">
-                  <CheckSquare className="w-4 h-4 text-brand-500" />
-                  <span>Proximos Pasos Accionables ({analysis.recommendedActions?.length || 0})</span>
+              <div className="pt-3 space-y-4 text-xs">
+                <div className="space-y-1.5">
+                  <span className="font-semibold text-surface-300 block">Resumen Ejecutivo:</span>
+                  <p className="text-surface-300 leading-relaxed bg-surface-900/60 p-3 rounded border border-surface-800/60">
+                    {analysis.executiveSummary}
+                  </p>
                 </div>
-                {analysis.suggestedProjectName && (
-                  <span className="text-[10px] font-mono text-surface-400">
-                    Proyecto Sugerido: {analysis.suggestedProjectName}
-                  </span>
+
+                <div className="space-y-1.5">
+                  <span className="font-semibold text-surface-300 block">Investigación & Viabilidad Técnica:</span>
+                  <p className="text-surface-300 leading-relaxed bg-surface-900/60 p-3 rounded border border-surface-800/60">
+                    {analysis.researchAndViability}
+                  </p>
+                </div>
+
+                {analysis.keyInsights && analysis.keyInsights.length > 0 && (
+                  <div className="space-y-1.5">
+                    <span className="font-semibold text-surface-300 block">Observaciones Clave:</span>
+                    <ul className="space-y-1 bg-surface-900/60 p-3 rounded border border-surface-800/60">
+                      {analysis.keyInsights.map((insight, idx) => (
+                        <li key={idx} className="flex items-start gap-2 text-surface-300 text-[11px]">
+                          <ChevronRight className="w-3.5 h-3.5 text-surface-400 shrink-0 mt-0.5" />
+                          <span>{insight}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
               </div>
-
-              <div className="space-y-2.5 divide-y divide-surface-800/60">
-                {analysis.recommendedActions?.map((action, idx) => {
-                  const priorityClass = priorityColors[action.priority] || priorityColors.MEDIUM;
-                  return (
-                    <div key={idx} className="pt-2.5 first:pt-0 space-y-1">
-                      <div className="flex items-start justify-between gap-3">
-                        <span className="text-xs font-semibold text-surface-100">
-                          {idx + 1}. {action.title}
-                        </span>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${priorityClass}`}>
-                            {action.priority}
-                          </span>
-                          <span className="flex items-center gap-1 text-[10px] font-mono text-surface-400">
-                            <Clock className="w-3 h-3" />
-                            <span>{action.estimatedDuration} min</span>
-                          </span>
-                        </div>
-                      </div>
-                      <p className="text-[11px] text-surface-400 leading-relaxed pl-3.5">
-                        {action.description}
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            </details>
           </div>
         ) : (
           <div className="p-6 text-center text-xs text-surface-400 bg-surface-950 border border-surface-800 rounded-lg">

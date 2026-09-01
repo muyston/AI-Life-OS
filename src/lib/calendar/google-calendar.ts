@@ -4,8 +4,8 @@ import { syncEventsFromIcal, calculateFreeSlotsForDate, SyncCalendarResult } fro
 /**
  * Servicio unificado de sincronizacion de calendario
  */
-export async function syncCalendar(): Promise<SyncCalendarResult> {
-  const icalUrl = process.env.GOOGLE_CALENDAR_ICAL_URL;
+export async function syncCalendar(explicitIcalUrl?: string): Promise<SyncCalendarResult> {
+  const icalUrl = explicitIcalUrl || process.env.GOOGLE_CALENDAR_ICAL_URL;
 
   if (icalUrl) {
     return await syncEventsFromIcal(icalUrl);

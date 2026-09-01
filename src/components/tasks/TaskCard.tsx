@@ -10,7 +10,8 @@ import {
   Trash2, 
   Edit3,
   ExternalLink,
-  Bot
+  Bot,
+  Timer
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -115,6 +116,20 @@ export function TaskCard({ task, onStatusToggle, onEdit, onDelete }: TaskCardPro
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
+          {!isCompleted && (
+            <button
+              type="button"
+              onClick={() => {
+                window.dispatchEvent(
+                  new CustomEvent("open-focus-mode", { detail: task })
+                );
+              }}
+              className="p-1 rounded text-surface-400 hover:text-brand-400 hover:bg-surface-800 transition-colors"
+              title="Iniciar sesión de Deep Work en esta tarea"
+            >
+              <Timer className="w-3.5 h-3.5" />
+            </button>
+          )}
           {onEdit && (
             <button
               type="button"

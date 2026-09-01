@@ -151,7 +151,7 @@ export default function AgentsPage() {
   const totalCost = runs.reduce((acc, r) => acc + (r.costEstimate || 0), 0);
 
   return (
-    <div className="p-8 space-y-6 max-w-7xl mx-auto w-full">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto w-full">
       {/* Header */}
       <div className="flex items-center justify-between pb-4 border-b border-surface-800 flex-wrap gap-4">
         <div>

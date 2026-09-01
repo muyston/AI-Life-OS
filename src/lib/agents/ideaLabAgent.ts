@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { prisma } from "../prisma";
 import { logAgentRun } from "./agent-logger";
+import { runMultiSolutionSolver, deterministicSolverAnalysis } from "./solverAgent";
 import { 
   IdeaCategory, 
   IdeaAssignedAgent, 
@@ -365,6 +366,8 @@ function deterministicAnalyze(
       break;
   }
 
+  const solverAnalysis = deterministicSolverAnalysis(rawContent, category);
+
   return {
     executiveSummary: `Evaluacion preliminar institucional para la iniciativa "${titleCandidate}". Se clasifica bajo el dominio de ${category.toUpperCase()} con asignacion al especialista ${assignedAgent.toUpperCase()}. La propuesta presenta potencial de aplicacion directa y requiere ejecucion estructurada por fases.`,
     researchAndViability: `Se ha comprobado la consistencia del concepto respecto al ecosistema actual. La viabilidad operativa es favorable, estimando un tiempo de implementacion acotado con recursos existentes. Se recomienda preservar el enfoque modular y validar cada entregable de forma incremental.`,
@@ -376,6 +379,7 @@ function deterministicAnalyze(
     recommendedActions: actions,
     suggestedProjectName: titleCandidate,
     targetCategory: category,
+    solverAnalysis,
   };
 }
 
@@ -485,7 +489,11 @@ ${rawContent}
 Contexto actual del sistema:
 ${JSON.stringify(systemContext, null, 2)}`;
 
-    const response = await model.generateContent(promptPayload);
+    const [response, solverAnalysis] = await Promise.all([
+      model.generateContent(promptPayload),
+      runMultiSolutionSolver(rawContent, category),
+    ]);
+
     const parsed = JSON.parse(response.response.text()) as IdeaStructuredAnalysis;
 
     // Sanitizar y validar tipos
@@ -508,6 +516,7 @@ ${JSON.stringify(systemContext, null, 2)}`;
       suggestedProjectName: parsed.suggestedProjectName || "Proyecto Derivado",
       targetCategory: validCategory,
       recommendedActions: validatedActions.length > 0 ? validatedActions : deterministicAnalyze(rawContent, category, assignedAgent).recommendedActions,
+      solverAnalysis,
     };
   } catch (error) {
     console.error("Error en analisis LLM, recurriendo a generador determinista:", error);

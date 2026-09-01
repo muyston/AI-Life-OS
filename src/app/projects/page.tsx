@@ -19,7 +19,10 @@ import {
   User,
   CheckCircle2,
   Clock,
-  Layers
+  Layers,
+  RefreshCw,
+  Sparkles,
+  Laptop
 } from "lucide-react";
 
 type ViewMode = "grid" | "kanban";
@@ -29,6 +32,8 @@ export default function ProjectsPage() {
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [isLoading, setIsLoading] = useState(true);
+  const [isSyncingAntigravity, setIsSyncingAntigravity] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<ProjectEntity | null>(null);
 
@@ -53,6 +58,31 @@ export default function ProjectsPage() {
   useEffect(() => {
     loadProjects();
   }, [selectedCategory]);
+
+  const handleSyncAntigravity = async () => {
+    try {
+      setIsSyncingAntigravity(true);
+      setSyncFeedback(null);
+      const res = await fetch("/api/projects/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        setSyncFeedback(
+          data.message || `Sincronizados ${data.data?.projectsSynced || 0} proyectos de Antigravity.`
+        );
+        await loadProjects();
+      } else {
+        setSyncFeedback("Error al sincronizar proyectos con Antigravity.");
+      }
+    } catch (err) {
+      setSyncFeedback("Error de conexion al sincronizar con Antigravity.");
+    } finally {
+      setIsSyncingAntigravity(false);
+    }
+  };
 
   const handleSaveProject = async (projectData: Partial<ProjectEntity>) => {
     const url = projectData.id ? `/api/projects/${projectData.id}` : "/api/projects";
@@ -125,7 +155,6 @@ export default function ProjectsPage() {
   const renderProjectCard = (project: ProjectEntity) => {
     const totalTasks = project.tasksCount?.total || 0;
     const completedTasks = project.tasksCount?.completed || 0;
-    const pendingTasks = project.tasksCount?.pending || 0;
     const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
     const categoryBadgeClass = categoryColors[project.category] || categoryColors.tech;
 
@@ -137,9 +166,17 @@ export default function ProjectsPage() {
         <div>
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <span className={`text-[10px] font-mono px-2 py-0.5 rounded border uppercase inline-block mb-1.5 ${categoryBadgeClass}`}>
-                {project.category || "tech"}
-              </span>
+              <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded border uppercase inline-block ${categoryBadgeClass}`}>
+                  {project.category || "tech"}
+                </span>
+                {project.repoUrl && (
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-surface-700 bg-surface-950 text-surface-400 flex items-center gap-1">
+                    <Laptop className="w-2.5 h-2.5 text-accent-400" />
+                    Antigravity
+                  </span>
+                )}
+              </div>
               <h3 className="text-sm font-semibold text-surface-100 truncate">
                 {project.name}
               </h3>
@@ -224,20 +261,32 @@ export default function ProjectsPage() {
   };
 
   return (
-    <div className="p-8 space-y-6 max-w-7xl mx-auto w-full">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto w-full">
       {/* Header */}
       <div className="flex items-center justify-between pb-4 border-b border-surface-800 flex-wrap gap-4">
         <div>
           <span className="text-[11px] font-mono uppercase tracking-wider text-surface-400 block">
-            Núcleo de Memoria Estructurada Multidominio
+            Núcleo de Memoria Estructurada Multidominio & Workspaces
           </span>
           <h1 className="text-xl font-bold tracking-tight text-surface-100 flex items-center gap-2">
             <FolderKanban className="w-5 h-5 text-accent-500" />
-            Gestión de Proyectos por Categoría
+            Gestión de Proyectos y Workspaces
           </h1>
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Antigravity Sync Button */}
+          <button
+            type="button"
+            onClick={handleSyncAntigravity}
+            disabled={isSyncingAntigravity}
+            className="flex items-center gap-1.5 px-3 py-2 bg-surface-900 hover:bg-surface-800 text-surface-200 border border-surface-700 rounded text-xs transition-colors disabled:opacity-50"
+            title="Escanear y sincronizar workspaces de Antigravity y repositorios locales"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-accent-400 ${isSyncingAntigravity ? "animate-spin" : ""}`} />
+            {isSyncingAntigravity ? "Sincronizando..." : "Sincronizar Antigravity"}
+          </button>
+
           {/* View mode switcher */}
           <div className="flex items-center bg-surface-900 border border-surface-800 rounded p-0.5">
             <button
@@ -282,6 +331,23 @@ export default function ProjectsPage() {
         </div>
       </div>
 
+      {/* Sync Feedback Toast */}
+      {syncFeedback && (
+        <div className="p-3 rounded-lg bg-surface-900 border border-brand-800/60 text-xs text-surface-200 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-brand-400 shrink-0" />
+            <span>{syncFeedback}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSyncFeedback(null)}
+            className="text-[11px] text-surface-400 hover:text-surface-200"
+          >
+            Cerrar
+          </button>
+        </div>
+      )}
+
       {/* Category Tabs */}
       <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-surface-800">
         {categories.map((cat) => {
@@ -314,13 +380,22 @@ export default function ProjectsPage() {
         <div className="py-16 text-center text-xs text-surface-400 bg-surface-900 border border-surface-800 rounded-lg space-y-3">
           <FolderKanban className="w-8 h-8 text-surface-600 mx-auto" />
           <p>No tienes proyectos registrados en esta categoría aún.</p>
-          <button
-            type="button"
-            onClick={() => setIsModalOpen(true)}
-            className="px-3.5 py-1.5 bg-surface-800 hover:bg-surface-700 text-surface-200 rounded text-xs transition-colors"
-          >
-            Registrar Primer Proyecto
-          </button>
+          <div className="flex justify-center gap-3">
+            <button
+              type="button"
+              onClick={handleSyncAntigravity}
+              className="px-3.5 py-1.5 bg-surface-800 hover:bg-surface-700 text-surface-200 border border-surface-700 rounded text-xs transition-colors"
+            >
+              Sincronizar Workspaces de Antigravity
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsModalOpen(true)}
+              className="px-3.5 py-1.5 bg-accent-600 hover:bg-accent-500 text-white rounded text-xs transition-colors"
+            >
+              Registrar Primer Proyecto
+            </button>
+          </div>
         </div>
       ) : viewMode === "grid" ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">

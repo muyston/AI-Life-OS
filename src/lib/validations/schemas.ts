@@ -140,6 +140,18 @@ export const ConvertIdeaSchema = z.object({
   selectedActionIndices: z.array(z.number().int().nonnegative()).optional(),
 });
 
+export const ApplySolverSolutionSchema = z.object({
+  selectedOptionId: z.enum(["option-a", "option-b", "option-c"]),
+  mode: z.enum([
+    "DISPATCH_TO_AI_ACTIONS",
+    "MATERIALIZE_AS_TASKS",
+    "CREATE_PROJECT",
+  ]).default("DISPATCH_TO_AI_ACTIONS"),
+  projectName: z.string().optional(),
+  category: ProjectCategoryEnum.optional(),
+  priority: PriorityLevelEnum.optional(),
+});
+
 // --- Schemas de Acciones IA ---
 export const UpdateAiActionSchema = z.object({
   status: AiActionStatusEnum,

@@ -206,6 +206,51 @@ export const SPECIALIST_AGENTS: AgentSpecialistInfo[] = [
   },
 ];
 
+export type SolverOptionType = "QUICK_WIN" | "STRUCTURAL" | "DELEGATED";
+export type CognitiveCostLevel = "LOW" | "MEDIUM" | "HIGH";
+
+export interface SolverActionProposal {
+  title: string;
+  description: string;
+  category: ProjectCategory | "operations";
+  actionType: AiActionType;
+  priority: PriorityLevel;
+  estimatedDuration: number;
+  payload?: string | null;
+}
+
+export interface SolverOption {
+  id: "option-a" | "option-b" | "option-c";
+  type: SolverOptionType;
+  title: string;
+  badge: string;
+  summary: string;
+  tradeOffs: {
+    estimatedTimeHours: number;
+    cognitiveCost: CognitiveCostLevel;
+    roiDescription: string;
+    successProbability: number;
+  };
+  multidomainImpact: {
+    primaryDomain: ProjectCategory;
+    domainImpacts: {
+      category: ProjectCategory;
+      impactLevel: "POSITIVE" | "NEUTRAL" | "HIGH_IMPACT";
+      description: string;
+    }[];
+  };
+  actions: SolverActionProposal[];
+}
+
+export interface MultiSolutionAnalysis {
+  executiveDiagnosis: string;
+  rootCause: string;
+  keyVariables: string[];
+  solutions: [SolverOption, SolverOption, SolverOption];
+  suggestedProjectName?: string;
+  targetCategory: IdeaCategory;
+}
+
 export type IdeaCategory = "tech" | "business" | "personal" | "academic" | "performance" | "general";
 export type IdeaStatus = "RAW" | "PROCESSING" | "COMPLETED" | "FAILED";
 export type IdeaAssignedAgent = "strategy" | "dev" | "sales" | "operations" | "general";
@@ -225,6 +270,7 @@ export interface IdeaStructuredAnalysis {
   recommendedActions: IdeaRecommendedAction[];
   suggestedProjectName?: string;
   targetCategory?: IdeaCategory;
+  solverAnalysis?: MultiSolutionAnalysis | null;
 }
 
 export interface IdeaEntity {

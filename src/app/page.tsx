@@ -16,6 +16,8 @@ import {
 import { DailyTimeline } from "@/components/dashboard/DailyTimeline";
 import { PlanningWidget } from "@/components/dashboard/PlanningWidget";
 import { AiActivityFeed } from "@/components/dashboard/AiActivityFeed";
+import { MultidomainRadar } from "@/components/dashboard/MultidomainRadar";
+import { HabitTrackerWidget } from "@/components/habits/HabitTrackerWidget";
 import { TaskCard } from "@/components/tasks/TaskCard";
 import { TaskModal } from "@/components/tasks/TaskModal";
 import { 
@@ -223,7 +225,7 @@ export default function DashboardPage() {
   const pendingActionsCount = aiActions.filter((a) => a.status === "PENDING_REVIEW").length;
 
   return (
-    <div className="p-8 space-y-6 max-w-7xl mx-auto w-full">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto w-full">
       {/* Top Header */}
       <div className="flex items-center justify-between pb-4 border-b border-surface-800 flex-wrap gap-4">
         <div>
@@ -371,12 +373,19 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Right Column: Daily Timeline of Events and Free Slots */}
+        {/* Right Column: Daily Timeline, Habits & Multidomain Radar */}
         <div className="lg:col-span-5 space-y-6">
           <DailyTimeline
             events={events}
             freeSlots={freeSlots}
             assignments={proposal?.assignments || []}
+          />
+
+          <HabitTrackerWidget />
+
+          <MultidomainRadar
+            projects={projects}
+            tasks={tasks}
           />
         </div>
       </div>

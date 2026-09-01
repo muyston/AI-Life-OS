@@ -1,22 +1,25 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+  schemas   = ["life_os"]
 }
 
 model Project {
   id          String   @id @default(cuid())
   name        String
   description String?
-  repoUrl     String?
+  repoUrl     String?  @map("repo_url")
   category    String   @default("tech") // tech, business, academic, performance, personal
   status      String   @default("ACTIVE") // ACTIVE, ON_HOLD, COMPLETED, ARCHIVED
   priority    String   @default("MEDIUM") // LOW, MEDIUM, HIGH, CRITICAL
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   tasks Task[]
 
@@ -24,24 +27,25 @@ model Project {
   @@index([status])
   @@index([category, status])
   @@map("projects")
+  @@schema("life_os")
 }
 
 model Task {
   id                String    @id @default(cuid())
-  projectId         String?
+  projectId         String?   @map("project_id")
   title             String
   description       String?
   type              String    @default("NORMAL") // MANUAL, RECURRING, NORMAL, AGENT_GENERATED
   status            String    @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, CANCELLED
   priority          String    @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
   deadline          DateTime?
-  estimatedDuration Int       @default(30) // En minutos
+  estimatedDuration Int       @default(30) @map("estimated_duration") // En minutos
   origin            String    @default("MANUAL") // MANUAL, GITHUB_TODO, ANTIGRAVITY_TODO, AGENT_PLANNING, etc.
-  scheduledStart    DateTime?
-  scheduledEnd      DateTime?
-  completedAt       DateTime?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  scheduledStart    DateTime? @map("scheduled_start")
+  scheduledEnd      DateTime? @map("scheduled_end")
+  completedAt       DateTime? @map("completed_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
@@ -52,106 +56,151 @@ model Task {
   @@index([projectId, status])
   @@index([scheduledStart, scheduledEnd])
   @@map("tasks")
+  @@schema("life_os")
 }
 
 model CalendarEvent {
   id          String   @id @default(cuid())
-  externalId  String   @unique
+  externalId  String   @unique @map("external_id")
   summary     String
   description String?
-  startTime   DateTime
-  endTime     DateTime
-  isAllDay    Boolean  @default(false)
+  startTime   DateTime @map("start_time")
+  endTime     DateTime @map("end_time")
+  isAllDay    Boolean  @default(false) @map("is_all_day")
   location    String?
   status      String   @default("CONFIRMED") // CONFIRMED, TENTATIVE, CANCELLED
-  rawData     String?  // JSON serializado
-  syncedAt    DateTime @default(now())
+  rawData     String?  @map("raw_data") // JSON serializado
+  syncedAt    DateTime @default(now()) @map("synced_at")
 
   @@index([startTime, endTime])
   @@map("calendar_events")
+  @@schema("life_os")
 }
 
 model RecurringPattern {
   id                String   @id @default(cuid())
   description       String
-  detectedFrequency String   // DAILY, WEEKLY, BIWEEKLY, MONTHLY
-  associatedTasks   String   // JSON string array de IDs o descripciones
-  confidenceScore   Float    // 0.0 a 1.0
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  detectedFrequency String   @map("detected_frequency") // DAILY, WEEKLY, BIWEEKLY, MONTHLY
+  associatedTasks   String   @map("associated_tasks") // JSON string array de IDs o descripciones
+  confidenceScore   Float    @map("confidence_score") // 0.0 a 1.0
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
 
   miniApps MiniApp[]
 
   @@map("recurring_patterns")
+  @@schema("life_os")
 }
 
 model MiniApp {
   id                  String   @id @default(cuid())
-  patternId           String?
+  patternId           String?  @map("pattern_id")
   name                String
   slug                String   @unique
-  skillDefinitionPath String?  // Ruta hacia el fichero SKILL.md
-  skillContent        String?  // Contenido markdown del SKILL.md
+  skillDefinitionPath String?  @map("skill_definition_path") // Ruta hacia el fichero SKILL.md
+  skillContent        String?  @map("skill_content") // Contenido markdown del SKILL.md
   status              String   @default("PROPOSED") // PROPOSED, ACTIVE, ARCHIVED
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
 
   pattern RecurringPattern? @relation(fields: [patternId], references: [id], onDelete: SetNull)
 
   @@map("mini_apps")
+  @@schema("life_os")
 }
 
 model AgentRun {
   id              String   @id @default(cuid())
-  agentName       String   // ORCHESTRATOR, STRATEGY, SALES, DEV, OPERATIONS, PLANNING_AGENT, etc.
-  triggerType     String   // MANUAL, CRON, EVENT, PIPELINE
-  inputPayload    String?  // JSON string
-  outputPayload   String?  // JSON string
-  tokensUsed      Int      @default(0)
-  costEstimate    Float    @default(0.0)
+  agentName       String   @map("agent_name") // ORCHESTRATOR, STRATEGY, SALES, DEV, OPERATIONS, PLANNING_AGENT, etc.
+  triggerType     String   @map("trigger_type") // MANUAL, CRON, EVENT, PIPELINE
+  inputPayload    String?  @map("input_payload") // JSON string
+  outputPayload   String?  @map("output_payload") // JSON string
+  tokensUsed      Int      @default(0) @map("tokens_used")
+  costEstimate    Float    @default(0.0) @map("cost_estimate")
   status          String   @default("SUCCESS") // SUCCESS, FAILED, RUNNING
-  errorMessage    String?
-  executionTimeMs Int      @default(0)
-  createdAt       DateTime @default(now())
+  errorMessage    String?  @map("error_message")
+  executionTimeMs Int      @default(0) @map("execution_time_ms")
+  createdAt       DateTime @default(now()) @map("created_at")
 
   @@index([agentName])
   @@index([createdAt])
   @@index([agentName, createdAt])
   @@map("agent_runs")
+  @@schema("life_os")
 }
 
 model AiAction {
   id          String   @id @default(cuid())
-  agentName   String   // ORCHESTRATOR, STRATEGY, SALES, DEV, OPERATIONS
+  agentName   String   @map("agent_name") // ORCHESTRATOR, STRATEGY, SALES, DEV, OPERATIONS
   title       String
   description String
   category    String   @default("tech") // tech, business, academic, performance, personal, operations
-  actionType  String   // TASK_PROPOSAL, CALENDAR_RESCHEDULE, CODE_SNIPPET, OUTREACH_DRAFT, STRATEGY_ALERT
+  actionType  String   @map("action_type") // TASK_PROPOSAL, CALENDAR_RESCHEDULE, CODE_SNIPPET, OUTREACH_DRAFT, STRATEGY_ALERT
   payload     String?  // JSON string con datos para ejecución
   status      String   @default("PENDING_REVIEW") // PENDING_REVIEW, APPROVED, REJECTED, EXECUTED
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@index([status])
   @@index([agentName])
   @@index([category])
   @@index([status, agentName])
   @@map("ai_actions")
+  @@schema("life_os")
 }
 
 model Idea {
   id            String   @id @default(cuid())
-  rawContent    String
+  rawContent    String   @map("raw_content")
   category      String   @default("general") // tech, business, personal, academic, performance, general
   status        String   @default("RAW") // RAW, PROCESSING, COMPLETED, FAILED
-  assignedAgent String   @default("general") // strategy, dev, sales, operations, general
+  assignedAgent String   @default("general") @map("assigned_agent") // strategy, dev, sales, operations, general
   analysis      String?  // JSON serializado con resumen, investigacion, viabilidad/datos, acciones recomendadas
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   @@index([status])
   @@index([category])
   @@index([assignedAgent])
   @@index([status, assignedAgent])
   @@map("ideas")
+  @@schema("life_os")
 }
+
+model Habit {
+  id          String     @id @default(cuid())
+  title       String
+  description String?
+  category    String     @default("tech") // tech, business, academic, performance, personal
+  frequency   String     @default("DAILY") // DAILY, WEEKDAYS, WEEKLY
+  targetDays  Int        @default(7) @map("target_days") // Días objetivo por semana
+  icon        String?
+  active      Boolean    @default(true)
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  logs HabitLog[]
+
+  @@index([category])
+  @@index([active])
+  @@map("habits")
+  @@schema("life_os")
+}
+
+model HabitLog {
+  id        String   @id @default(cuid())
+  habitId   String   @map("habit_id")
+  date      String   // Formato YYYY-MM-DD
+  completed Boolean  @default(true)
+  notes     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  habit Habit @relation(fields: [habitId], references: [id], onDelete: Cascade)
+
+  @@unique([habitId, date])
+  @@index([date])
+  @@index([habitId])
+  @@map("habit_logs")
+  @@schema("life_os")
+}
+
