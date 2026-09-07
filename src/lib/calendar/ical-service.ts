@@ -77,13 +77,27 @@ export async function syncEventsFromIcal(icalUrl?: string): Promise<SyncCalendar
     const icsText = await response.text();
     const parsedEvents = ical.sync.parseICS(icsText);
 
-    // 2. Ventana de expansion para eventos recurrentes: 30 dias atras y 90 dias adelante
+    // 2. Ventana de expansion para eventos recurrentes: 90 dias atras y 240 dias adelante
     const now = new Date();
-    const windowStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const windowEnd = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+    const windowStart = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    const windowEnd = new Date(now.getTime() + 240 * 24 * 60 * 60 * 1000);
 
     let singleEventsCount = 0;
     let recurringInstancesCount = 0;
+
+    interface NormalizedEventPayload {
+      externalId: string;
+      summary: string;
+      description: string | null;
+      startTime: Date;
+      endTime: Date;
+      isAllDay: boolean;
+      location: string | null;
+      status: string;
+      rawData?: string;
+    }
+
+    const itemsToUpsert: NormalizedEventPayload[] = [];
 
     for (const key in parsedEvents) {
       if (!Object.prototype.hasOwnProperty.call(parsedEvents, key)) continue;
@@ -99,7 +113,12 @@ export async function syncEventsFromIcal(icalUrl?: string): Promise<SyncCalendar
       // Evento recurrente con regla rrule
       if (ev.rrule && typeof ev.rrule.between === "function" && ev.start && ev.end) {
         const originalDuration = new Date(ev.end).getTime() - new Date(ev.start).getTime();
-        const occurrences = ev.rrule.between(windowStart, windowEnd, true);
+        let occurrences: Date[] = [];
+        try {
+          occurrences = ev.rrule.between(windowStart, windowEnd, true);
+        } catch {
+          occurrences = [];
+        }
 
         // Conjunto de fechas excluidas
         const exdateMap = new Set<string>();
@@ -121,12 +140,10 @@ export async function syncEventsFromIcal(icalUrl?: string): Promise<SyncCalendar
           const occDate = new Date(occ);
           const dateIsoKey = occDate.toISOString().split("T")[0];
 
-          // Si la fecha esta excluida expresamente, omitir
           if (exdateMap.has(dateIsoKey)) {
             continue;
           }
 
-          // Verificar si existe una sobreescritura (recurrence override)
           let occSummary = summary;
           let occDesc = description;
           let occLoc = location;
@@ -147,39 +164,16 @@ export async function syncEventsFromIcal(icalUrl?: string): Promise<SyncCalendar
 
           const externalId = `${uid}_${dateIsoKey}`;
 
-          await prisma.calendarEvent.upsert({
-            where: { externalId },
-            update: {
-              summary: occSummary,
-              description: occDesc,
-              startTime: occStart,
-              endTime: occEnd,
-              isAllDay,
-              location: occLoc,
-              status: "CONFIRMED",
-              rawData: JSON.stringify({
-                uid,
-                isRecurringInstance: true,
-                dateIsoKey,
-              }),
-              syncedAt: new Date(),
-            },
-            create: {
-              externalId,
-              summary: occSummary,
-              description: occDesc,
-              startTime: occStart,
-              endTime: occEnd,
-              isAllDay,
-              location: occLoc,
-              status: "CONFIRMED",
-              rawData: JSON.stringify({
-                uid,
-                isRecurringInstance: true,
-                dateIsoKey,
-              }),
-              syncedAt: new Date(),
-            },
+          itemsToUpsert.push({
+            externalId,
+            summary: occSummary,
+            description: occDesc,
+            startTime: occStart,
+            endTime: occEnd,
+            isAllDay,
+            location: occLoc,
+            status: "CONFIRMED",
+            rawData: JSON.stringify({ uid, isRecurringInstance: true, dateIsoKey }),
           });
 
           recurringInstancesCount++;
@@ -188,27 +182,13 @@ export async function syncEventsFromIcal(icalUrl?: string): Promise<SyncCalendar
         // Evento puntual no recurrente
         const startTime = new Date(ev.start);
         const endTime = new Date(ev.end);
-        const isAllDay = (ev as { datetype?: string }).datetype === "date" || 
-          (endTime.getTime() - startTime.getTime()) >= 86400000;
 
-        await prisma.calendarEvent.upsert({
-          where: { externalId: uid },
-          update: {
-            summary,
-            description,
-            startTime,
-            endTime,
-            isAllDay,
-            location,
-            status: "CONFIRMED",
-            rawData: JSON.stringify({
-              uid,
-              created: ev.created,
-              lastmodified: ev.lastmodified,
-            }),
-            syncedAt: new Date(),
-          },
-          create: {
+        // Incluir eventos si solapan con la ventana activa o son futuros/recientes
+        if (endTime >= windowStart && startTime <= windowEnd) {
+          const isAllDay = (ev as { datetype?: string }).datetype === "date" || 
+            (endTime.getTime() - startTime.getTime()) >= 86400000;
+
+          itemsToUpsert.push({
             externalId: uid,
             summary,
             description,
@@ -217,17 +197,48 @@ export async function syncEventsFromIcal(icalUrl?: string): Promise<SyncCalendar
             isAllDay,
             location,
             status: "CONFIRMED",
-            rawData: JSON.stringify({
-              uid,
-              created: ev.created,
-              lastmodified: ev.lastmodified,
-            }),
-            syncedAt: new Date(),
-          },
-        });
+            rawData: JSON.stringify({ uid, created: ev.created, lastmodified: ev.lastmodified }),
+          });
 
-        singleEventsCount++;
+          singleEventsCount++;
+        }
       }
+    }
+
+    // 3. Insercion concurrente por lotes de 25 para maximo rendimiento
+    const batchSize = 25;
+    for (let i = 0; i < itemsToUpsert.length; i += batchSize) {
+      const chunk = itemsToUpsert.slice(i, i + batchSize);
+      await Promise.all(
+        chunk.map((item) =>
+          prisma.calendarEvent.upsert({
+            where: { externalId: item.externalId },
+            update: {
+              summary: item.summary,
+              description: item.description,
+              startTime: item.startTime,
+              endTime: item.endTime,
+              isAllDay: item.isAllDay,
+              location: item.location,
+              status: item.status,
+              rawData: item.rawData,
+              syncedAt: new Date(),
+            },
+            create: {
+              externalId: item.externalId,
+              summary: item.summary,
+              description: item.description,
+              startTime: item.startTime,
+              endTime: item.endTime,
+              isAllDay: item.isAllDay,
+              location: item.location,
+              status: item.status,
+              rawData: item.rawData,
+              syncedAt: new Date(),
+            },
+          })
+        )
+      );
     }
 
     const totalSynced = singleEventsCount + recurringInstancesCount;

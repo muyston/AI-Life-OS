@@ -18,6 +18,7 @@ import {
 import { HabitWithStats } from "@/lib/types";
 import { useLifeOS } from "@/lib/store/life-os-store";
 import { HabitStreakMatrix } from "@/components/habits/HabitStreakMatrix";
+import { HabitAiAuditPanel } from "@/components/habits/HabitAiAuditPanel";
 import { HabitModal } from "@/components/habits/HabitModal";
 import { VoiceInputButton } from "@/components/voice/VoiceInputButton";
 
@@ -164,6 +165,9 @@ export default function HabitsPage() {
           );
         })}
       </div>
+
+      {/* AI Habit Audit & Optimization Panel */}
+      <HabitAiAuditPanel />
 
       {/* Main Habits List with 7-Day Matrix */}
       <HabitStreakMatrix

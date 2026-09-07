@@ -10,6 +10,7 @@ interface CalendarDayViewProps {
   events: CalendarEventEntity[];
   freeSlots: FreeTimeSlot[];
   onScheduleSlot?: (slot: FreeTimeSlot) => void;
+  onSelectEvent?: (event: CalendarEventEntity) => void;
 }
 
 export function CalendarDayView({
@@ -17,6 +18,7 @@ export function CalendarDayView({
   events,
   freeSlots,
   onScheduleSlot,
+  onSelectEvent,
 }: CalendarDayViewProps) {
   const formattedDate = format(selectedDate, "EEEE, d 'de' MMMM 'de' yyyy", { locale: es });
   const totalFreeMinutes = freeSlots.reduce((acc, s) => acc + s.durationMinutes, 0);
@@ -26,6 +28,7 @@ export function CalendarDayView({
     ...events.map((e) => ({
       type: "EVENT" as const,
       id: e.id,
+      rawEvent: e,
       title: e.summary,
       description: e.description,
       location: e.location,
@@ -85,7 +88,8 @@ export function CalendarDayView({
               return (
                 <div
                   key={item.id}
-                  className="glass-card rounded-xl p-3.5 border-l-4 border-l-blue-500 flex items-start justify-between gap-4 transition-all hover:border-white/20"
+                  onClick={() => onSelectEvent && onSelectEvent(item.rawEvent)}
+                  className="glass-card rounded-xl p-3.5 border-l-4 border-l-blue-500 flex items-start justify-between gap-4 transition-all hover:border-white/20 cursor-pointer hover:bg-white/[0.03]"
                 >
                   <div className="space-y-1 min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">

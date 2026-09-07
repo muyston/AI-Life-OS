@@ -19,6 +19,8 @@ export interface SpeechRecognitionHookOptions {
 export class BrowserSpeechRecognizer {
   private recognition: any = null;
   private isListening: boolean = false;
+  private manualStopRequested: boolean = false;
+  private accumulatedFinalText: string = "";
 
   constructor(options: SpeechRecognitionHookOptions = {}) {
     if (typeof window === "undefined") return;
@@ -27,29 +29,43 @@ export class BrowserSpeechRecognizer {
 
     if (SpeechRecognition) {
       this.recognition = new SpeechRecognition();
-      this.recognition.continuous = options.continuous ?? false;
+      this.recognition.continuous = true;
       this.recognition.interimResults = true;
       this.recognition.lang = options.lang || "es-ES";
 
       this.recognition.onresult = (event: any) => {
         let interimTranscript = "";
-        let finalTranscript = "";
 
         for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
+          const result = event.results[i];
+          if (result.isFinal) {
+            const finalChunk = result[0].transcript.trim();
+            if (finalChunk) {
+              this.accumulatedFinalText = this.accumulatedFinalText
+                ? `${this.accumulatedFinalText} ${finalChunk}`
+                : finalChunk;
+            }
           } else {
-            interimTranscript += event.results[i][0].transcript;
+            interimTranscript += result[0].transcript;
           }
         }
 
-        const text = finalTranscript || interimTranscript;
+        const fullText = (this.accumulatedFinalText + (interimTranscript ? ` ${interimTranscript}` : "")).trim();
         if (options.onResult) {
-          options.onResult(text, Boolean(finalTranscript));
+          options.onResult(fullText, false);
         }
       };
 
       this.recognition.onerror = (event: any) => {
+        // En navegadores, 'no-speech' es simplemente una pausa silenciosa, no un error fatal
+        if (event.error === "no-speech") {
+          return;
+        }
+
+        if (event.error === "aborted" && !this.manualStopRequested) {
+          return;
+        }
+
         this.isListening = false;
         if (options.onError) {
           options.onError(event.error || "Error en el reconocimiento de voz");
@@ -57,6 +73,27 @@ export class BrowserSpeechRecognizer {
       };
 
       this.recognition.onend = () => {
+        // Si el navegador corta por silencio pero el usuario no ha pulsado stop, reiniciar
+        if (!this.manualStopRequested && this.isListening) {
+          try {
+            this.recognition.start();
+            return;
+          } catch {
+            // Si no se puede reiniciar inmediatamente, esperar un breve instante
+            setTimeout(() => {
+              if (!this.manualStopRequested && this.isListening) {
+                try {
+                  this.recognition.start();
+                } catch {
+                  this.isListening = false;
+                  if (options.onEnd) options.onEnd();
+                }
+              }
+            }, 200);
+            return;
+          }
+        }
+
         this.isListening = false;
         if (options.onEnd) {
           options.onEnd();
@@ -72,6 +109,9 @@ export class BrowserSpeechRecognizer {
 
   public start(): boolean {
     if (!this.recognition) return false;
+    this.manualStopRequested = false;
+    this.accumulatedFinalText = "";
+
     if (this.isListening) return true;
 
     try {
@@ -84,17 +124,23 @@ export class BrowserSpeechRecognizer {
     }
   }
 
-  public stop(): void {
-    if (!this.recognition || !this.isListening) return;
-    try {
-      this.recognition.stop();
-      this.isListening = false;
-    } catch {
-      // Ignorar error al detener
+  public stop(): string {
+    this.manualStopRequested = true;
+    this.isListening = false;
+
+    if (this.recognition) {
+      try {
+        this.recognition.stop();
+      } catch {
+        // Ignorar error al detener
+      }
     }
+
+    return this.accumulatedFinalText.trim();
   }
 
   public getActive(): boolean {
     return this.isListening;
   }
 }
+

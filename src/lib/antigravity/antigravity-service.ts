@@ -170,118 +170,155 @@ function parseTranscriptTail(transcriptPath: string): {
  * Escanea todos los workspaces y conversaciones activas de Antigravity
  */
 export async function scanAntigravityWorkspaces(): Promise<AntigravityProjectDetails[]> {
-  const { conversationsDir, brainDir } = getAntigravityBasePaths();
+  const { homeDir, conversationsDir, brainDir } = getAntigravityBasePaths();
+  const desktopDir = path.join(homeDir, "Desktop");
 
-  if (!fs.existsSync(conversationsDir)) {
-    return [];
-  }
-
-  const dbFiles = fs.readdirSync(conversationsDir).filter((f) => f.endsWith(".db"));
+  // Mapa de proyectos raiz descubiertos
   const workspaceMap = new Map<string, {
     localPath: string;
+    folderName: string;
     workspaceUri: string;
     repoUrl: string | null;
     conversations: AntigravityConversationSummary[];
   }>();
 
-  for (const dbFile of dbFiles) {
-    const conversationId = path.basename(dbFile, ".db");
-    const dbPath = path.join(conversationsDir, dbFile);
-
+  // 1. Escaneo directo de proyectos reales en el Desktop del usuario
+  if (fs.existsSync(desktopDir)) {
     try {
-      const buffer = fs.readFileSync(dbPath);
-      const rawString = buffer.toString("latin1");
+      const desktopEntries = fs.readdirSync(desktopDir, { withFileTypes: true });
+      for (const entry of desktopEntries) {
+        if (entry.isDirectory()) {
+          const folderPath = path.join(desktopDir, entry.name);
+          const repoUrl = readLocalGitRemote(folderPath);
+          const normalizedKey = folderPath.toLowerCase();
 
-      const matchUri = rawString.match(/file:\/\/\/([a-zA-Z]:\/[^\x00-\x1f"'\s<>]+)/);
-      if (!matchUri) continue;
-
-      const workspaceUri = matchUri[0];
-      const localPath = decodeURIComponent(workspaceUri.replace("file:///", "").replace(/\//g, "\\"));
-      
-      const matchRepo = rawString.match(/(https:\/\/github\.com\/[^\s\x00-\x1f"'\r\n<>]+\.git)/);
-      const repoUrl = matchRepo ? matchRepo[1].replace(/\.git$/, "") : readLocalGitRemote(localPath);
-
-      const stepMatches = rawString.match(/steps/g);
-      const stepCount = stepMatches ? Math.max(1, Math.floor(stepMatches.length / 2)) : 10;
-
-      const conversationBrain = path.join(brainDir, conversationId);
-      let hasPlan = false;
-      let planSummary: string | null = null;
-      let requestFeedback = false;
-      let hasWalkthrough = false;
-      let walkthroughSummary: string | null = null;
-      let artifacts: string[] = [];
-
-      if (fs.existsSync(conversationBrain)) {
-        const planPath = path.join(conversationBrain, "implementation_plan.md");
-        const planMetaPath = path.join(conversationBrain, "implementation_plan.md.metadata.json");
-        hasPlan = fs.existsSync(planPath);
-
-        if (fs.existsSync(planMetaPath)) {
-          try {
-            const meta = JSON.parse(fs.readFileSync(planMetaPath, "utf8"));
-            planSummary = meta.summary || null;
-            requestFeedback = Boolean(meta.requestFeedback);
-          } catch {
-            // Ignorar fallo de lectura
-          }
-        }
-
-        const walkthroughPath = path.join(conversationBrain, "walkthrough.md");
-        const walkthroughMetaPath = path.join(conversationBrain, "walkthrough.md.metadata.json");
-        hasWalkthrough = fs.existsSync(walkthroughPath);
-
-        if (fs.existsSync(walkthroughMetaPath)) {
-          try {
-            const meta = JSON.parse(fs.readFileSync(walkthroughMetaPath, "utf8"));
-            walkthroughSummary = meta.summary || null;
-          } catch {
-            // Ignorar
-          }
-        }
-
-        try {
-          const files = fs.readdirSync(conversationBrain);
-          artifacts = files.filter(
-            (f) => f.endsWith(".md") && f !== "implementation_plan.md" && f !== "walkthrough.md"
-          );
-        } catch {
-          // Ignorar fallo de lectura
+          workspaceMap.set(normalizedKey, {
+            localPath: folderPath,
+            folderName: entry.name,
+            workspaceUri: `file:///${folderPath.replace(/\\/g, "/")}`,
+            repoUrl,
+            conversations: [],
+          });
         }
       }
-
-      const transcriptPath = path.join(conversationBrain, ".system_generated", "logs", "transcript.jsonl");
-      const { lastUserInput, lastStepTime } = parseTranscriptTail(transcriptPath);
-
-      const convSummary: AntigravityConversationSummary = {
-        conversationId,
-        stepCount,
-        lastStepTime,
-        lastUserInput,
-        hasPlan,
-        planSummary,
-        requestFeedback,
-        hasWalkthrough,
-        walkthroughSummary,
-        artifactsCount: artifacts.length,
-        artifacts,
-      };
-
-      if (!workspaceMap.has(localPath)) {
-        workspaceMap.set(localPath, {
-          localPath,
-          workspaceUri,
-          repoUrl,
-          conversations: [],
-        });
-      }
-
-      workspaceMap.get(localPath)!.conversations.push(convSummary);
-    } catch {
-      // Continuar con siguiente
+    } catch (err) {
+      console.error("Error al escanear directorio Desktop:", err);
     }
   }
 
+  // Ordenar las claves por longitud descendente para que 'Lanzing SAAS' empareje antes que 'Lanzing'
+  const sortedRootKeys = Array.from(workspaceMap.keys()).sort((a, b) => b.length - a.length);
+
+  // 2. Escaneo y asociacion de conversaciones activas en Antigravity
+  if (fs.existsSync(conversationsDir)) {
+    const dbFiles = fs.readdirSync(conversationsDir).filter((f) => f.endsWith(".db"));
+
+    for (const dbFile of dbFiles) {
+      const conversationId = path.basename(dbFile, ".db");
+      const dbPath = path.join(conversationsDir, dbFile);
+
+      try {
+        const buffer = fs.readFileSync(dbPath);
+        const rawString = buffer.toString("latin1");
+
+        // Buscar todas las URIs de workspace
+        const matches = rawString.match(/file:\/\/\/[a-zA-Z]:\/[^\x00-\x1f"'\s<>\)\*\&]+/g) || [];
+        let matchedRootKey: string | null = null;
+        let detectedRepoUrl: string | null = null;
+
+        for (const m of matches) {
+          if (m.toLowerCase().includes(".gemini") || m.includes("transcript.jsonl")) continue;
+          const clean = m.replace(/[\x00-\x20zš]+$/, "");
+          const decoded = decodeURIComponent(clean.replace("file:///", "").replace(/\//g, "\\")).toLowerCase();
+
+          for (const rootKey of sortedRootKeys) {
+            if (decoded.startsWith(rootKey)) {
+              matchedRootKey = rootKey;
+              break;
+            }
+          }
+          if (matchedRootKey) break;
+        }
+
+        const matchRepo = rawString.match(/(https:\/\/github\.com\/[^\s\x00-\x1f"'\r\n<>]+\.git)/);
+        if (matchRepo) {
+          detectedRepoUrl = matchRepo[1].replace(/\.git$/, "");
+        }
+
+        // Conteo de pasos en la conversacion
+        const stepMatches = rawString.match(/steps/g);
+        const stepCount = stepMatches ? Math.max(1, Math.floor(stepMatches.length / 2)) : 10;
+
+        // Inspeccion del Brain de Antigravity
+        const conversationBrain = path.join(brainDir, conversationId);
+        let hasPlan = false;
+        let planSummary: string | null = null;
+        let requestFeedback = false;
+        let hasWalkthrough = false;
+        let walkthroughSummary: string | null = null;
+        let artifacts: string[] = [];
+
+        if (fs.existsSync(conversationBrain)) {
+          const planPath = path.join(conversationBrain, "implementation_plan.md");
+          const planMetaPath = path.join(conversationBrain, "implementation_plan.md.metadata.json");
+          hasPlan = fs.existsSync(planPath);
+
+          if (fs.existsSync(planMetaPath)) {
+            try {
+              const meta = JSON.parse(fs.readFileSync(planMetaPath, "utf8"));
+              planSummary = meta.summary || null;
+              requestFeedback = Boolean(meta.requestFeedback);
+            } catch {}
+          }
+
+          const walkthroughPath = path.join(conversationBrain, "walkthrough.md");
+          const walkthroughMetaPath = path.join(conversationBrain, "walkthrough.md.metadata.json");
+          hasWalkthrough = fs.existsSync(walkthroughPath);
+
+          if (fs.existsSync(walkthroughMetaPath)) {
+            try {
+              const meta = JSON.parse(fs.readFileSync(walkthroughMetaPath, "utf8"));
+              walkthroughSummary = meta.summary || null;
+            } catch {}
+          }
+
+          try {
+            const files = fs.readdirSync(conversationBrain);
+            artifacts = files.filter(
+              (f) => f.endsWith(".md") && f !== "implementation_plan.md" && f !== "walkthrough.md"
+            );
+          } catch {}
+        }
+
+        const transcriptPath = path.join(conversationBrain, ".system_generated", "logs", "transcript.jsonl");
+        const { lastUserInput, lastStepTime } = parseTranscriptTail(transcriptPath);
+
+        const convSummary: AntigravityConversationSummary = {
+          conversationId,
+          stepCount,
+          lastStepTime,
+          lastUserInput,
+          hasPlan,
+          planSummary,
+          requestFeedback,
+          hasWalkthrough,
+          walkthroughSummary,
+          artifactsCount: artifacts.length,
+          artifacts,
+        };
+
+        if (matchedRootKey && workspaceMap.has(matchedRootKey)) {
+          const targetWs = workspaceMap.get(matchedRootKey)!;
+          if (!targetWs.repoUrl && detectedRepoUrl) {
+            targetWs.repoUrl = detectedRepoUrl;
+          }
+          targetWs.conversations.push(convSummary);
+        }
+      } catch {}
+    }
+  }
+
+  // 3. Cruzar con proyectos persistidos en base de datos
   const allDbProjects = await prisma.project.findMany({
     include: {
       tasks: {
@@ -292,8 +329,8 @@ export async function scanAntigravityWorkspaces(): Promise<AntigravityProjectDet
 
   const results: AntigravityProjectDetails[] = [];
 
-  for (const [localPath, data] of workspaceMap.entries()) {
-    const folderName = path.basename(localPath);
+  for (const [, data] of workspaceMap.entries()) {
+    const folderName = data.folderName;
     const { category, priority, displayName } = categorizePath(folderName);
 
     data.conversations.sort((a, b) => {
@@ -311,7 +348,7 @@ export async function scanAntigravityWorkspaces(): Promise<AntigravityProjectDet
         status = "WAITING_APPROVAL";
       } else if (latest.lastStepTime) {
         const diffMinutes = (Date.now() - new Date(latest.lastStepTime).getTime()) / (1000 * 60);
-        if (diffMinutes < 30) {
+        if (diffMinutes < 45) {
           status = "ACTIVE";
         } else if (latest.hasPlan && !latest.hasWalkthrough) {
           status = "PLANNING";
@@ -321,12 +358,31 @@ export async function scanAntigravityWorkspaces(): Promise<AntigravityProjectDet
       }
     }
 
-    const matchedPrismaProject = allDbProjects.find((p) => {
+    let matchedPrismaProject = allDbProjects.find((p) => {
       if (p.repoUrl && data.repoUrl && p.repoUrl.toLowerCase() === data.repoUrl.toLowerCase()) return true;
       if (p.name.toLowerCase() === displayName.toLowerCase()) return true;
       if (p.name.toLowerCase() === folderName.toLowerCase()) return true;
       return false;
     });
+
+    // Auto-upsert del proyecto en BD si tiene conversaciones y aun no existe en Prisma
+    if (!matchedPrismaProject && data.conversations.length > 0) {
+      try {
+        matchedPrismaProject = await prisma.project.create({
+          data: {
+            name: displayName,
+            description: `Workspace local de ${folderName} sincronizado desde Antigravity`,
+            repoUrl: data.repoUrl,
+            category,
+            priority,
+            status: "ACTIVE",
+          },
+          include: {
+            tasks: { select: { id: true, status: true } },
+          },
+        });
+      } catch {}
+    }
 
     const tasksCount = matchedPrismaProject ? {
       total: matchedPrismaProject.tasks.length,
@@ -335,10 +391,10 @@ export async function scanAntigravityWorkspaces(): Promise<AntigravityProjectDet
     } : undefined;
 
     results.push({
-      id: matchedPrismaProject?.id || Buffer.from(localPath).toString("base64url"),
+      id: matchedPrismaProject?.id || Buffer.from(data.localPath).toString("base64url"),
       name: displayName,
       folderName,
-      localPath,
+      localPath: data.localPath,
       workspaceUri: data.workspaceUri,
       repoUrl: data.repoUrl,
       category: (matchedPrismaProject?.category as ProjectCategory) || category,

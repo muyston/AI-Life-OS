@@ -32,31 +32,30 @@ export function VoiceCaptureModal({ isOpen, onClose, onActionCompleted }: VoiceC
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successFeedback, setSuccessFeedback] = useState<string | null>(null);
 
+  const [recordingDuration, setRecordingDuration] = useState(0);
   const recognizerRef = useRef<BrowserSpeechRecognizer | null>(null);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleStartListening = useCallback(() => {
     setErrorMessage(null);
     setSuccessFeedback(null);
     setProcessResult(null);
     setTranscript("");
+    setRecordingDuration(0);
 
     if (!recognizerRef.current) {
       recognizerRef.current = new BrowserSpeechRecognizer({
         lang: "es-ES",
-        continuous: false,
-        onResult: (text, isFinal) => {
+        continuous: true,
+        onResult: (text) => {
           setTranscript(text);
-          if (isFinal) {
-            setIsRecording(false);
-            processSpeech(text);
-          }
         },
         onError: (err) => {
           setIsRecording(false);
-          setErrorMessage(`Error de micrófono: ${err}. Comprueba los permisos en tu navegador.`);
+          setErrorMessage(`Error de microfono: ${err}. Comprueba los permisos en tu navegador.`);
         },
         onEnd: () => {
-          setIsRecording(false);
+          // El reconocedor gestiona el reinicio automatico si no ha sido manual
         },
       });
     }
@@ -76,13 +75,34 @@ export function VoiceCaptureModal({ isOpen, onClose, onActionCompleted }: VoiceC
 
   const handleStopListening = useCallback(() => {
     if (recognizerRef.current) {
-      recognizerRef.current.stop();
+      const finalAccumulated = recognizerRef.current.stop();
       setIsRecording(false);
-      if (transcript.trim()) {
-        processSpeech(transcript);
+      const textToUse = (finalAccumulated || transcript).trim();
+      if (textToUse) {
+        processSpeech(textToUse);
       }
     }
   }, [transcript]);
+
+  // Temporizador de grabacion activa
+  useEffect(() => {
+    if (isRecording) {
+      timerRef.current = setInterval(() => {
+        setRecordingDuration((prev) => prev + 1);
+      }, 1000);
+    } else {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    }
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [isRecording]);
 
   useEffect(() => {
     if (isOpen) {
@@ -96,8 +116,15 @@ export function VoiceCaptureModal({ isOpen, onClose, onActionCompleted }: VoiceC
       setProcessResult(null);
       setErrorMessage(null);
       setSuccessFeedback(null);
+      setRecordingDuration(0);
     }
   }, [isOpen, handleStartListening]);
+
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  };
 
   const processSpeech = async (textToProcess: string) => {
     if (!textToProcess.trim()) return;
@@ -257,7 +284,7 @@ export function VoiceCaptureModal({ isOpen, onClose, onActionCompleted }: VoiceC
         </div>
 
         {/* Audio Wave Visualizer & Record Button */}
-        <div className="flex flex-col items-center justify-center py-6 space-y-4">
+        <div className="flex flex-col items-center justify-center py-5 space-y-4">
           <button
             type="button"
             onClick={isRecording ? handleStopListening : handleStartListening}
@@ -276,13 +303,23 @@ export function VoiceCaptureModal({ isOpen, onClose, onActionCompleted }: VoiceC
             {isRecording ? <Mic className="w-8 h-8 relative z-10" /> : <MicOff className="w-7 h-7" />}
           </button>
 
-          <div className="text-center">
-            <span className="text-xs font-medium text-surface-200 block">
-              {isRecording ? "Escuchando... Di lo que necesitas" : "Pulsa el micrófono para dictar"}
-            </span>
-            <span className="text-[11px] text-surface-400 font-mono mt-0.5 block">
-              Ej: &quot;Nueva tarea: revisar métricas de marketing para mañana prioridad alta&quot;
-            </span>
+          <div className="text-center space-y-1">
+            <div className="flex items-center justify-center gap-2">
+              <span className={`w-2 h-2 rounded-full ${isRecording ? "bg-rose-500 animate-pulse" : "bg-surface-600"}`} />
+              <span className="text-xs font-semibold text-surface-200">
+                {isRecording ? "Grabando Continuamente" : "Micrófono en Pausa"}
+              </span>
+              {isRecording && (
+                <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-rose-950/80 border border-rose-800/80 text-rose-300">
+                  {formatDuration(recordingDuration)}
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-surface-400 max-w-sm mx-auto leading-relaxed">
+              {isRecording
+                ? "Puedes pausar tu voz sin que se corte. La captura solo finalizará cuando pulses el botón de detener."
+                : "Pulsa el botón para comenzar a dictar cualquier instrucción, tarea o hábito."}
+            </p>
           </div>
 
           {/* Siri Waveform Bars Simulation */}
@@ -299,6 +336,18 @@ export function VoiceCaptureModal({ isOpen, onClose, onActionCompleted }: VoiceC
                 />
               ))}
             </div>
+          )}
+
+          {/* Explicit Stop Button during Recording */}
+          {isRecording && (
+            <button
+              type="button"
+              onClick={handleStopListening}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold shadow-lg shadow-rose-600/25 active:scale-95 transition-all"
+            >
+              <span className="w-3 h-3 rounded-xs bg-white inline-block" />
+              <span>Detener Grabación y Procesar</span>
+            </button>
           )}
         </div>
 

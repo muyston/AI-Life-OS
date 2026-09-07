@@ -22,6 +22,7 @@ import {
   LayoutGrid,
   Columns,
   CalendarDays,
+  List,
   Plus
 } from "lucide-react";
 import { 
@@ -38,6 +39,8 @@ import { CalendarEventEntity, FreeTimeSlot, TaskEntity, CalendarViewType, TaskSt
 import { CalendarMonthView } from "@/components/calendar/CalendarMonthView";
 import { CalendarWeekView } from "@/components/calendar/CalendarWeekView";
 import { CalendarDayView } from "@/components/calendar/CalendarDayView";
+import { CalendarAgendaView } from "@/components/calendar/CalendarAgendaView";
+import { CalendarEventDetailModal } from "@/components/calendar/CalendarEventDetailModal";
 import { CalendarTodoPanel } from "@/components/calendar/CalendarTodoPanel";
 import { CalendarExportModal } from "@/components/calendar/CalendarExportModal";
 import { VoiceInputButton } from "@/components/voice/VoiceInputButton";
@@ -61,6 +64,7 @@ export default function CalendarPage() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [viewMode, setViewMode] = useState<CalendarViewType>("month");
   const [mobileTab, setMobileTab] = useState<"calendar" | "todo">("calendar");
+  const [selectedEventForDetail, setSelectedEventForDetail] = useState<CalendarEventEntity | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -120,7 +124,7 @@ export default function CalendarPage() {
 
   // Navegación de fechas
   const handlePrev = () => {
-    if (viewMode === "month") {
+    if (viewMode === "month" || viewMode === "list") {
       setCurrentDate((prev) => subMonths(prev, 1));
     } else if (viewMode === "week") {
       setCurrentDate((prev) => subWeeks(prev, 1));
@@ -132,7 +136,7 @@ export default function CalendarPage() {
   };
 
   const handleNext = () => {
-    if (viewMode === "month") {
+    if (viewMode === "month" || viewMode === "list") {
       setCurrentDate((prev) => addMonths(prev, 1));
     } else if (viewMode === "week") {
       setCurrentDate((prev) => addWeeks(prev, 1));
@@ -379,6 +383,18 @@ export default function CalendarPage() {
               <CalendarDays className="w-3.5 h-3.5" />
               <span>Día</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("list")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                viewMode === "list"
+                  ? "bg-surface-800 text-surface-50 shadow-xs border border-white/10"
+                  : "text-surface-400 hover:text-surface-200"
+              }`}
+            >
+              <List className="w-3.5 h-3.5" />
+              <span>Agenda</span>
+            </button>
           </div>
 
           <VisionScheduleButton
@@ -489,6 +505,15 @@ export default function CalendarPage() {
                 setSelectedDate(d);
                 setViewMode("day");
               }}
+              onSelectEvent={(ev) => setSelectedEventForDetail(ev)}
+              onQuickAdd={(d) => {
+                setSelectedDate(d);
+                handleAddTask({
+                  title: "Bloque de trabajo enfocado",
+                  scheduledStart: d.toISOString(),
+                  priority: "HIGH",
+                });
+              }}
               events={events}
               tasks={tasks}
             />
@@ -499,6 +524,17 @@ export default function CalendarPage() {
               currentDate={currentDate}
               selectedDate={selectedDate}
               onSelectDate={(d) => setSelectedDate(d)}
+              onSelectEvent={(ev) => setSelectedEventForDetail(ev)}
+              onQuickAdd={(d, h) => {
+                setSelectedDate(d);
+                const dt = new Date(d);
+                if (h !== undefined) dt.setHours(h, 0, 0, 0);
+                handleAddTask({
+                  title: "Bloque de trabajo enfocado",
+                  scheduledStart: dt.toISOString(),
+                  priority: "HIGH",
+                });
+              }}
               events={events}
               freeSlots={freeSlots}
             />
@@ -509,6 +545,7 @@ export default function CalendarPage() {
               selectedDate={selectedDate}
               events={events}
               freeSlots={freeSlots}
+              onSelectEvent={(ev) => setSelectedEventForDetail(ev)}
               onScheduleSlot={(slot) => {
                 handleAddTask({
                   title: "Bloque de trabajo enfocado",
@@ -517,6 +554,19 @@ export default function CalendarPage() {
                   estimatedDuration: slot.durationMinutes,
                   priority: "HIGH",
                 });
+              }}
+            />
+          )}
+
+          {viewMode === "list" && (
+            <CalendarAgendaView
+              currentDate={currentDate}
+              events={events}
+              tasks={tasks}
+              onSelectEvent={(ev) => setSelectedEventForDetail(ev)}
+              onSelectDate={(d) => {
+                setSelectedDate(d);
+                setViewMode("day");
               }}
             />
           )}
@@ -637,6 +687,12 @@ export default function CalendarPage() {
       <CalendarExportModal
         isOpen={isExportOpen}
         onClose={() => setIsExportOpen(false)}
+      />
+
+      {/* Google Calendar Event Detail Modal */}
+      <CalendarEventDetailModal
+        event={selectedEventForDetail}
+        onClose={() => setSelectedEventForDetail(null)}
       />
     </div>
   );
