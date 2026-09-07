@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { ProjectEntity, ProjectCategory, ProjectStatus } from "@/lib/types";
 import { ProjectModal } from "@/components/projects/ProjectModal";
+import { AntigravityConsole } from "@/components/projects/AntigravityConsole";
+import { VoiceInputButton } from "@/components/voice/VoiceInputButton";
 import { 
   FolderKanban, 
   Plus, 
@@ -18,14 +20,13 @@ import {
   Dumbbell,
   User,
   CheckCircle2,
-  Clock,
   Layers,
   RefreshCw,
-  Sparkles,
-  Laptop
+  Laptop,
+  Terminal
 } from "lucide-react";
 
-type ViewMode = "grid" | "kanban";
+type ViewMode = "grid" | "kanban" | "antigravity";
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<ProjectEntity[]>([]);
@@ -37,13 +38,13 @@ export default function ProjectsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<ProjectEntity | null>(null);
 
-  const loadProjects = async () => {
+  const loadProjects = useCallback(async () => {
     try {
       setIsLoading(true);
       const url = selectedCategory === "ALL" 
         ? "/api/projects" 
         : `/api/projects?category=${selectedCategory}`;
-      const res = await fetch(url);
+      const res = await fetch(url, { cache: "no-store" });
       const data = await res.json();
       if (data.success) {
         setProjects(data.data);
@@ -53,11 +54,11 @@ export default function ProjectsPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [selectedCategory]);
 
   useEffect(() => {
     loadProjects();
-  }, [selectedCategory]);
+  }, [loadProjects]);
 
   const handleSyncAntigravity = async () => {
     try {
@@ -77,8 +78,8 @@ export default function ProjectsPage() {
       } else {
         setSyncFeedback("Error al sincronizar proyectos con Antigravity.");
       }
-    } catch (err) {
-      setSyncFeedback("Error de conexion al sincronizar con Antigravity.");
+    } catch {
+      setSyncFeedback("Error de conexión al sincronizar con Antigravity.");
     } finally {
       setIsSyncingAntigravity(false);
     }
@@ -132,10 +133,10 @@ export default function ProjectsPage() {
   };
 
   const priorityColors = {
-    CRITICAL: "text-red-400 bg-red-950/60 border-red-800/80",
-    HIGH: "text-amber-400 bg-amber-950/60 border-amber-800/80",
-    MEDIUM: "text-blue-400 bg-blue-950/60 border-blue-800/80",
-    LOW: "text-surface-400 bg-surface-800 border-surface-700",
+    CRITICAL: "text-rose-300 bg-rose-950/60 border-rose-800/80",
+    HIGH: "text-amber-300 bg-amber-950/60 border-amber-800/80",
+    MEDIUM: "text-blue-300 bg-blue-950/60 border-blue-800/80",
+    LOW: "text-surface-400 bg-surface-900 border-white/[0.08]",
   };
 
   const statusLabels: Record<ProjectStatus, string> = {
@@ -161,20 +162,28 @@ export default function ProjectsPage() {
     return (
       <div
         key={project.id}
-        className="bg-surface-900 border border-surface-800 rounded-lg p-5 flex flex-col justify-between hover:border-surface-700 transition-all shadow-sm space-y-4"
+        className="glass-card rounded-2xl p-5 flex flex-col justify-between hover:border-white/20 transition-all shadow-md space-y-4"
       >
         <div>
           <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
-                <span className={`text-[10px] font-mono px-2 py-0.5 rounded border uppercase inline-block ${categoryBadgeClass}`}>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+                <span className={`text-[9px] font-mono px-2 py-0.5 rounded-md border uppercase inline-block ${categoryBadgeClass}`}>
                   {project.category || "tech"}
                 </span>
                 {project.repoUrl && (
-                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-surface-700 bg-surface-950 text-surface-400 flex items-center gap-1">
-                    <Laptop className="w-2.5 h-2.5 text-accent-400" />
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setViewMode("antigravity");
+                    }}
+                    className="text-[9px] font-mono px-1.5 py-0.5 rounded-md border border-white/10 bg-surface-950 text-surface-400 hover:text-accent-300 hover:border-accent-500/40 flex items-center gap-1 transition-colors cursor-pointer"
+                    title="Abrir consola Antigravity en vivo"
+                  >
+                    <Terminal className="w-2.5 h-2.5 text-accent-400" />
                     Antigravity
-                  </span>
+                  </button>
                 )}
               </div>
               <h3 className="text-sm font-semibold text-surface-100 truncate">
@@ -182,7 +191,7 @@ export default function ProjectsPage() {
               </h3>
             </div>
             <span
-              className={`text-[10px] font-mono px-2 py-0.5 rounded border uppercase shrink-0 ${
+              className={`text-[9px] font-mono px-2 py-0.5 rounded-md border uppercase shrink-0 ${
                 priorityColors[project.priority as keyof typeof priorityColors] || priorityColors.MEDIUM
               }`}
             >
@@ -191,7 +200,7 @@ export default function ProjectsPage() {
           </div>
 
           {project.description && (
-            <p className="text-xs text-surface-400 mt-2 line-clamp-2">
+            <p className="text-xs text-surface-400 mt-2 line-clamp-2 leading-relaxed break-words">
               {project.description}
             </p>
           )}
@@ -214,7 +223,7 @@ export default function ProjectsPage() {
           )}
         </div>
 
-        <div className="space-y-3 pt-3 border-t border-surface-800">
+        <div className="space-y-3 pt-3 border-t border-white/[0.06]">
           {/* Progress Bar */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-[11px] text-surface-400">
@@ -225,12 +234,12 @@ export default function ProjectsPage() {
               <div
                 className="h-full bg-brand-500 rounded-full transition-all duration-300"
                 style={{ width: `${progress}%` }}
-              ></div>
+              />
             </div>
           </div>
 
           <div className="flex items-center justify-between text-[11px] text-surface-400 pt-1">
-            <span className="font-mono">
+            <span className="font-mono text-[10px]">
               Estado: {statusLabels[project.status as keyof typeof statusLabels] || project.status}
             </span>
             <div className="flex items-center gap-1">
@@ -240,7 +249,7 @@ export default function ProjectsPage() {
                   setSelectedProject(project);
                   setIsModalOpen(true);
                 }}
-                className="p-1.5 rounded hover:bg-surface-800 text-surface-400 hover:text-surface-200 transition-colors"
+                className="p-1.5 rounded-lg hover:bg-white/5 text-surface-400 hover:text-surface-200 transition-colors"
                 title="Editar proyecto"
               >
                 <Edit3 className="w-3.5 h-3.5" />
@@ -248,7 +257,7 @@ export default function ProjectsPage() {
               <button
                 type="button"
                 onClick={() => handleDeleteProject(project.id)}
-                className="p-1.5 rounded hover:bg-surface-800 text-surface-400 hover:text-red-400 transition-colors"
+                className="p-1.5 rounded-lg hover:bg-white/5 text-surface-400 hover:text-rose-400 transition-colors"
                 title="Eliminar proyecto"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -263,36 +272,42 @@ export default function ProjectsPage() {
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto w-full">
       {/* Header */}
-      <div className="flex items-center justify-between pb-4 border-b border-surface-800 flex-wrap gap-4">
+      <div className="flex items-center justify-between pb-4 border-b border-white/[0.08] flex-wrap gap-4">
         <div>
           <span className="text-[11px] font-mono uppercase tracking-wider text-surface-400 block">
             Núcleo de Memoria Estructurada Multidominio & Workspaces
           </span>
-          <h1 className="text-xl font-bold tracking-tight text-surface-100 flex items-center gap-2">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-surface-50 flex items-center gap-2">
             <FolderKanban className="w-5 h-5 text-accent-500" />
-            Gestión de Proyectos y Workspaces
+            Gestión de Proyectos & Workspaces
           </h1>
         </div>
 
         <div className="flex items-center gap-3">
+          <VoiceInputButton
+            variant="pill"
+            onActionCompleted={loadProjects}
+            title="Dictar nuevo proyecto o tarea"
+          />
+
           {/* Antigravity Sync Button */}
           <button
             type="button"
             onClick={handleSyncAntigravity}
             disabled={isSyncingAntigravity}
-            className="flex items-center gap-1.5 px-3 py-2 bg-surface-900 hover:bg-surface-800 text-surface-200 border border-surface-700 rounded text-xs transition-colors disabled:opacity-50"
-            title="Escanear y sincronizar workspaces de Antigravity y repositorios locales"
+            className="flex items-center gap-1.5 px-3 py-2 bg-surface-900 hover:bg-surface-800 text-surface-200 border border-white/10 rounded-xl text-xs transition-colors disabled:opacity-50"
+            title="Escanear y sincronizar workspaces de Antigravity"
           >
             <RefreshCw className={`w-3.5 h-3.5 text-accent-400 ${isSyncingAntigravity ? "animate-spin" : ""}`} />
-            {isSyncingAntigravity ? "Sincronizando..." : "Sincronizar Antigravity"}
+            <span className="hidden sm:inline">{isSyncingAntigravity ? "Sincronizando..." : "Sincronizar Antigravity"}</span>
           </button>
 
           {/* View mode switcher */}
-          <div className="flex items-center bg-surface-900 border border-surface-800 rounded p-0.5">
+          <div className="flex items-center bg-surface-950 border border-white/10 rounded-xl p-0.5">
             <button
               type="button"
               onClick={() => setViewMode("grid")}
-              className={`p-1.5 rounded text-xs flex items-center gap-1 transition-colors ${
+              className={`p-1.5 rounded-lg text-xs flex items-center gap-1 transition-colors ${
                 viewMode === "grid" 
                   ? "bg-surface-800 text-surface-100 font-medium" 
                   : "text-surface-400 hover:text-surface-200"
@@ -305,7 +320,7 @@ export default function ProjectsPage() {
             <button
               type="button"
               onClick={() => setViewMode("kanban")}
-              className={`p-1.5 rounded text-xs flex items-center gap-1 transition-colors ${
+              className={`p-1.5 rounded-lg text-xs flex items-center gap-1 transition-colors ${
                 viewMode === "kanban" 
                   ? "bg-surface-800 text-surface-100 font-medium" 
                   : "text-surface-400 hover:text-surface-200"
@@ -315,6 +330,19 @@ export default function ProjectsPage() {
               <Kanban className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Kanban</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("antigravity")}
+              className={`p-1.5 rounded-lg text-xs flex items-center gap-1.5 transition-colors ${
+                viewMode === "antigravity" 
+                  ? "bg-accent-600/30 text-accent-300 border border-accent-500/40 font-medium" 
+                  : "text-surface-400 hover:text-surface-200"
+              }`}
+              title="Consola Antigravity en Vivo"
+            >
+              <Terminal className="w-3.5 h-3.5 text-accent-400" />
+              <span className="hidden sm:inline">Antigravity</span>
+            </button>
           </div>
 
           <button
@@ -323,17 +351,17 @@ export default function ProjectsPage() {
               setSelectedProject(null);
               setIsModalOpen(true);
             }}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-accent-600 hover:bg-accent-500 text-white rounded text-xs font-medium transition-colors"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-accent-600 hover:bg-accent-500 text-white rounded-xl text-xs font-medium transition-all shadow-md active:scale-95"
           >
             <Plus className="w-3.5 h-3.5" />
-            Nuevo Proyecto
+            <span>Nuevo Proyecto</span>
           </button>
         </div>
       </div>
 
       {/* Sync Feedback Toast */}
       {syncFeedback && (
-        <div className="p-3 rounded-lg bg-surface-900 border border-brand-800/60 text-xs text-surface-200 flex items-center justify-between gap-3">
+        <div className="p-3.5 rounded-xl bg-surface-900 border border-brand-800/60 text-xs text-surface-200 flex items-center justify-between gap-3 shadow-xs">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-brand-400 shrink-0" />
             <span>{syncFeedback}</span>
@@ -341,59 +369,63 @@ export default function ProjectsPage() {
           <button
             type="button"
             onClick={() => setSyncFeedback(null)}
-            className="text-[11px] text-surface-400 hover:text-surface-200"
+            className="text-[11px] text-surface-400 hover:text-surface-200 font-mono"
           >
             Cerrar
           </button>
         </div>
       )}
 
-      {/* Category Tabs */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-surface-800">
-        {categories.map((cat) => {
-          const Icon = cat.icon;
-          const isSelected = selectedCategory === cat.id;
-          return (
-            <button
-              key={cat.id}
-              type="button"
-              onClick={() => setSelectedCategory(cat.id)}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-medium transition-all whitespace-nowrap border ${
-                isSelected
-                  ? "bg-surface-800 border-accent-500/50 text-surface-50 shadow-sm"
-                  : "bg-surface-900 border-surface-800 text-surface-400 hover:text-surface-200 hover:border-surface-700"
-              }`}
-            >
-              <Icon className={`w-3.5 h-3.5 ${isSelected ? "text-accent-400" : "text-surface-400"}`} />
-              <span>{cat.label}</span>
-            </button>
-          );
-        })}
-      </div>
+      {/* Category Tabs (Ocultos en modo Consola Antigravity para mantener el foco institucional) */}
+      {viewMode !== "antigravity" && (
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-white/[0.06]">
+          {categories.map((cat) => {
+            const Icon = cat.icon;
+            const isSelected = selectedCategory === cat.id;
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => setSelectedCategory(cat.id)}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap border ${
+                  isSelected
+                    ? "bg-surface-800 border-accent-500 text-surface-50 shadow-xs"
+                    : "bg-surface-950 border-white/[0.06] text-surface-400 hover:text-surface-200 hover:bg-surface-900"
+                }`}
+              >
+                <Icon className={`w-3.5 h-3.5 ${isSelected ? "text-accent-400" : "text-surface-400"}`} />
+                <span>{cat.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Content Rendering */}
-      {isLoading ? (
-        <div className="py-16 text-center text-xs text-surface-400">
+      {viewMode === "antigravity" ? (
+        <AntigravityConsole onSyncTriggered={loadProjects} />
+      ) : isLoading ? (
+        <div className="py-16 text-center text-xs text-surface-400 glass-card rounded-2xl">
           Cargando proyectos del sistema...
         </div>
       ) : projects.length === 0 ? (
-        <div className="py-16 text-center text-xs text-surface-400 bg-surface-900 border border-surface-800 rounded-lg space-y-3">
+        <div className="py-16 text-center text-xs text-surface-400 glass-card rounded-2xl space-y-3">
           <FolderKanban className="w-8 h-8 text-surface-600 mx-auto" />
           <p>No tienes proyectos registrados en esta categoría aún.</p>
-          <div className="flex justify-center gap-3">
+          <div className="flex justify-center gap-3 pt-2">
             <button
               type="button"
               onClick={handleSyncAntigravity}
-              className="px-3.5 py-1.5 bg-surface-800 hover:bg-surface-700 text-surface-200 border border-surface-700 rounded text-xs transition-colors"
+              className="px-3.5 py-2 bg-surface-900 hover:bg-surface-800 text-surface-200 border border-white/10 rounded-xl text-xs transition-colors"
             >
-              Sincronizar Workspaces de Antigravity
+              Sincronizar Workspaces
             </button>
             <button
               type="button"
               onClick={() => setIsModalOpen(true)}
-              className="px-3.5 py-1.5 bg-accent-600 hover:bg-accent-500 text-white rounded text-xs transition-colors"
+              className="px-3.5 py-2 bg-accent-600 hover:bg-accent-500 text-white rounded-xl text-xs transition-colors shadow-sm"
             >
-              Registrar Primer Proyecto
+              Nuevo Proyecto
             </button>
           </div>
         </div>
@@ -409,20 +441,20 @@ export default function ProjectsPage() {
             return (
               <div
                 key={col.status}
-                className="bg-surface-950/60 border border-surface-800/80 rounded-lg p-4 space-y-3 flex flex-col"
+                className="glass-panel rounded-2xl p-4 space-y-3 flex flex-col border border-white/10"
               >
-                <div className="flex items-center justify-between pb-2 border-b border-surface-800">
+                <div className="flex items-center justify-between pb-2 border-b border-white/[0.06]">
                   <h3 className={`text-xs font-semibold uppercase tracking-wider ${col.color}`}>
                     {col.title}
                   </h3>
-                  <span className="text-[11px] font-mono text-surface-400 bg-surface-900 px-2 py-0.5 rounded">
+                  <span className="text-[10px] font-mono text-surface-400 bg-surface-950 px-2 py-0.5 rounded-md border border-white/[0.06]">
                     {colProjects.length}
                   </span>
                 </div>
 
                 <div className="space-y-3 flex-1 overflow-y-auto max-h-[calc(100vh-280px)]">
                   {colProjects.length === 0 ? (
-                    <div className="py-8 text-center text-[11px] text-surface-600">
+                    <div className="py-8 text-center text-[11px] text-surface-500">
                       Sin proyectos
                     </div>
                   ) : (

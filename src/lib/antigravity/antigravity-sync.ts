@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { prisma } from "../prisma";
 import { ProjectCategory, PriorityLevel, ProjectStatus } from "../types";
+import { scanAntigravityWorkspaces, getAntigravityPlanDetails } from "./antigravity-service";
 
 export interface AntigravitySyncResult {
   success: boolean;
@@ -63,7 +64,7 @@ function getGitRemoteUrl(projectPath: string): string | null {
 }
 
 /**
- * Extrae tareas o hitos desde package.json, README o analisis del proyecto
+ * Extrae tareas o hitos desde package.json o README
  */
 function extractProjectTasks(projectPath: string, projectName: string): { title: string; description: string; priority: PriorityLevel; estimatedDuration: number }[] {
   const tasks: { title: string; description: string; priority: PriorityLevel; estimatedDuration: number }[] = [];
@@ -92,16 +93,15 @@ function extractProjectTasks(projectPath: string, projectName: string): { title:
       }
     }
 
-    // Escanear README.md si existe
     const readmePath = path.join(projectPath, "README.md");
     if (fs.existsSync(readmePath)) {
       const readme = fs.readFileSync(readmePath, "utf8");
-      const todoMatches = readme.match(/- \[[ x]\]\s+([^\r\n]+)/g);
+      const todoMatches = readme.match(/- \[([ x])\]\s+([^\r\n]+)/g);
       if (todoMatches) {
         todoMatches.slice(0, 5).forEach((item) => {
           const isDone = item.startsWith("- [x]");
           if (!isDone) {
-            const cleanTitle = item.replace(/- \[[ ]\]\s+/, "").trim();
+            const cleanTitle = item.replace(/- \[ \]\s+/, "").trim();
             tasks.push({
               title: cleanTitle,
               description: `Tarea extraida del README de ${projectName}.`,
@@ -116,7 +116,6 @@ function extractProjectTasks(projectPath: string, projectName: string): { title:
     // Continuar sin tareas automaticas si falla la lectura
   }
 
-  // Tarea de mantenimiento estandar si no se encontraron tareas
   if (tasks.length === 0) {
     tasks.push({
       title: `Revision de arquitectura y dependencias en ${projectName}`,
@@ -130,7 +129,7 @@ function extractProjectTasks(projectPath: string, projectName: string): { title:
 }
 
 /**
- * Determina la categoria y prioridad segun el nombre del proyecto o contenido
+ * Determina la categoria y prioridad segun el nombre del proyecto
  */
 function categorizeProject(folderName: string, pkgName: string): { category: ProjectCategory; priority: PriorityLevel; name: string; description: string } {
   const lower = (folderName + " " + pkgName).toLowerCase();
@@ -148,7 +147,7 @@ function categorizeProject(folderName: string, pkgName: string): { category: Pro
     return {
       category: "business",
       priority: "HIGH",
-      name: "Ecosistema Lanzing (Webs & Clientes)",
+      name: "Ecosistema Lanzing (Webs y Clientes)",
       description: "Plataforma de conversion y landings medicas de alto impacto para clinicas dentales y esteticas.",
     };
   }
@@ -184,7 +183,7 @@ function categorizeProject(folderName: string, pkgName: string): { category: Pro
     return {
       category: "performance",
       priority: "MEDIUM",
-      name: "Analisis Tecnico de Padel & Videos",
+      name: "Analisis Tecnico de Padel y Videos",
       description: "Grabaciones y sesiones de entrenamiento tactico de padel de competicion.",
     };
   }
@@ -193,7 +192,7 @@ function categorizeProject(folderName: string, pkgName: string): { category: Pro
     return {
       category: "academic",
       priority: "HIGH",
-      name: "Ingenieria UPM & MotoStudent",
+      name: "Ingenieria UPM y MotoStudent",
       description: "Desarrollo y simulacion del prototipo electrico MotoStudent y proyectos academicos.",
     };
   }
@@ -213,7 +212,45 @@ export async function syncAntigravityProjects(): Promise<AntigravitySyncResult> 
   const discovered: DiscoveredProject[] = [];
   const scannedPaths = new Set<string>();
 
-  // 1. Escanear directorio Desktop del usuario
+  // 1. Escanear workspaces profundos de Antigravity
+  try {
+    const agWorkspaces = await scanAntigravityWorkspaces();
+    for (const ws of agWorkspaces) {
+      scannedPaths.add(ws.localPath);
+
+      let wsTasks = extractProjectTasks(ws.localPath, ws.name);
+
+      // Si el workspace tiene un plan activo en Antigravity, extraer tareas del plan
+      if (ws.latestConversation?.hasPlan) {
+        const planDetails = await getAntigravityPlanDetails(ws.latestConversation.conversationId);
+        if (planDetails && planDetails.tasks.length > 0) {
+          const planTasks = planDetails.tasks.slice(0, 10).map((pt) => ({
+            title: pt.title,
+            description: pt.description,
+            priority: "HIGH" as PriorityLevel,
+            estimatedDuration: 30,
+          }));
+          wsTasks = [...planTasks, ...wsTasks];
+        }
+      }
+
+      discovered.push({
+        name: ws.name,
+        folderName: ws.folderName,
+        localPath: ws.localPath,
+        description: `Workspace Antigravity (${ws.totalConversations} sesiones, ${ws.totalSteps} pasos)`,
+        repoUrl: ws.repoUrl,
+        category: ws.category,
+        priority: ws.priority,
+        status: "ACTIVE",
+        tasks: wsTasks,
+      });
+    }
+  } catch {
+    // Si falla el escaneo de workspaces, continuar con escaneo local de escritorio
+  }
+
+  // 2. Escanear directorio Desktop del usuario para proyectos no vinculados
   const homeDir = process.env.USERPROFILE || process.env.HOME || "C:\\Users\\grarr";
   const desktopDir = path.join(homeDir, "Desktop");
 
@@ -223,6 +260,7 @@ export async function syncAntigravityProjects(): Promise<AntigravitySyncResult> 
     for (const entry of entries) {
       if (entry.isDirectory()) {
         const fullPath = path.join(desktopDir, entry.name);
+        if (scannedPaths.has(fullPath)) continue;
         scannedPaths.add(fullPath);
 
         let pkgName = "";
@@ -232,7 +270,7 @@ export async function syncAntigravityProjects(): Promise<AntigravitySyncResult> 
             const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
             pkgName = pkg.name || "";
           } catch {
-            // Ignorar error de lectura de JSON
+            // Ignorar error
           }
         }
 
@@ -255,58 +293,12 @@ export async function syncAntigravityProjects(): Promise<AntigravitySyncResult> 
     }
   }
 
-  // 2. Extraer workspaces desde bases de datos de Antigravity si existen
-  const antigravityBrain = path.join(homeDir, ".gemini", "antigravity", "conversations");
-  if (fs.existsSync(antigravityBrain)) {
-    try {
-      const dbFiles = fs.readdirSync(antigravityBrain).filter((f) => f.endsWith(".db"));
-      for (const dbFile of dbFiles) {
-        const dbPath = path.join(antigravityBrain, dbFile);
-        try {
-          const buffer = fs.readFileSync(dbPath);
-          const rawString = buffer.toString("latin1");
-          const fileMatches = rawString.match(/file:\/\/\/([a-zA-Z]:\/[^\x00-\x1f"'\s<>]+)/g);
-
-          if (fileMatches) {
-            for (const fm of fileMatches) {
-              const cleanedPath = decodeURIComponent(fm.replace("file:///", "").replace(/\//g, "\\"));
-              if (fs.existsSync(cleanedPath) && !scannedPaths.has(cleanedPath)) {
-                scannedPaths.add(cleanedPath);
-                const folderName = path.basename(cleanedPath);
-                const repoUrl = getGitRemoteUrl(cleanedPath);
-                const { category, priority, name, description } = categorizeProject(folderName, "");
-                const tasks = extractProjectTasks(cleanedPath, name);
-
-                discovered.push({
-                  name,
-                  folderName,
-                  localPath: cleanedPath,
-                  description,
-                  repoUrl,
-                  category,
-                  priority,
-                  status: "ACTIVE",
-                  tasks,
-                });
-              }
-            }
-          }
-        } catch {
-          // Continuar con el siguiente archivo DB
-        }
-      }
-    } catch {
-      // Ignorar fallo de escaneo de DBs
-    }
-  }
-
   // 3. Upsert en base de datos Prisma
   let projectsSyncedCount = 0;
   let tasksSyncedCount = 0;
   const projectSummary: { name: string; category: string; repoUrl: string | null; tasksCount: number }[] = [];
 
   for (const item of discovered) {
-    // Buscar si ya existe por nombre similar o repoUrl
     let existing = await prisma.project.findFirst({
       where: {
         OR: [

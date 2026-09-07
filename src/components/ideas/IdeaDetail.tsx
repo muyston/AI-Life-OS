@@ -194,12 +194,47 @@ export function IdeaDetail({
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
+            onClick={async () => {
+              if (!analysis) return;
+              try {
+                setIsQuickConvertingTasks(true);
+                setFeedbackMessage(null);
+                const { executeIdeaCascade } = await import("@/lib/engine/cascade-engine");
+                const res = await executeIdeaCascade(idea);
+                setFeedbackMessage({
+                  type: "success",
+                  text: res.message,
+                });
+                onConverted();
+              } catch (err: unknown) {
+                const msg = err instanceof Error ? err.message : String(err);
+                setFeedbackMessage({
+                  type: "error",
+                  text: msg || "Error en ejecucion en cascada.",
+                });
+              } finally {
+                setIsQuickConvertingTasks(false);
+              }
+            }}
+            disabled={isProcessing || isQuickConvertingTasks || !analysis}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded text-xs font-medium transition-all shadow-sm active:scale-95 disabled:opacity-50"
+          >
+            {isQuickConvertingTasks ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="w-3.5 h-3.5" />
+            )}
+            <span>Ejecutar Plan en Cascada</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setIsConvertModalOpen(true)}
             disabled={isProcessing || !analysis}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 hover:bg-brand-500 text-white rounded text-xs font-medium transition-colors shadow-sm disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-surface-800 hover:bg-surface-700 text-surface-200 border border-surface-700 rounded text-xs font-medium transition-colors shadow-sm disabled:opacity-50"
           >
             <FolderKanban className="w-3.5 h-3.5" />
-            <span>Convertir en Proyecto</span>
+            <span>Configurar Proyecto</span>
           </button>
 
           <button

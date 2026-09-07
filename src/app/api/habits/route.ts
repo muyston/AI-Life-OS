@@ -1,49 +1,74 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiSuccess, apiError, handleApiError } from "@/lib/api-response";
+import { startOfWeek, addDays, format } from "date-fns";
+import { es } from "date-fns/locale";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 /**
- * Calcula la racha consecutiva de un hábito
+ * Calcula la racha consecutiva activa y la mejor racha histórica
  */
-function calculateStreak(logs: { date: string; completed: boolean }[]): number {
-  if (!logs || logs.length === 0) return 0;
+function calculateStreaks(logs: { date: string; completed: boolean }[]): { currentStreak: number; bestStreak: number } {
+  if (!logs || logs.length === 0) return { currentStreak: 0, bestStreak: 0 };
 
-  // Ordenar fechas descendente
-  const sorted = [...logs]
-    .filter((l) => l.completed)
-    .map((l) => l.date)
-    .sort()
-    .reverse();
+  const completedDates = Array.from(
+    new Set(
+      logs
+        .filter((l) => l.completed)
+        .map((l) => l.date)
+    )
+  ).sort().reverse();
 
-  if (sorted.length === 0) return 0;
+  if (completedDates.length === 0) return { currentStreak: 0, bestStreak: 0 };
 
   const todayStr = new Date().toISOString().split("T")[0];
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
   const yesterdayStr = yesterday.toISOString().split("T")[0];
 
-  // Comprobar si completó hoy o ayer para mantener la racha activa
-  if (!sorted.includes(todayStr) && !sorted.includes(yesterdayStr)) {
-    return 0;
-  }
-
-  let streak = 0;
-  let checkDate = new Date(sorted.includes(todayStr) ? todayStr : yesterdayStr);
-
-  for (let i = 0; i < 365; i++) {
-    const dStr = checkDate.toISOString().split("T")[0];
-    if (sorted.includes(dStr)) {
-      streak++;
-      checkDate.setDate(checkDate.getDate() - 1);
-    } else {
-      break;
+  // Cálculo de racha actual
+  let currentStreak = 0;
+  if (completedDates.includes(todayStr) || completedDates.includes(yesterdayStr)) {
+    let checkDate = new Date(completedDates.includes(todayStr) ? todayStr : yesterdayStr);
+    for (let i = 0; i < 365; i++) {
+      const dStr = checkDate.toISOString().split("T")[0];
+      if (completedDates.includes(dStr)) {
+        currentStreak++;
+        checkDate.setDate(checkDate.getDate() - 1);
+      } else {
+        break;
+      }
     }
   }
 
-  return streak;
+  // Cálculo de mejor racha histórica
+  const ascending = [...completedDates].sort();
+  let bestStreak = 0;
+  let tempStreak = 0;
+  let prevDate: Date | null = null;
+
+  for (const dateStr of ascending) {
+    const curDate = new Date(dateStr);
+    if (!prevDate) {
+      tempStreak = 1;
+    } else {
+      const diffTime = curDate.getTime() - prevDate.getTime();
+      const diffDays = Math.round(diffTime / (1000 * 3600 * 24));
+      if (diffDays === 1) {
+        tempStreak++;
+      } else if (diffDays > 1) {
+        tempStreak = 1;
+      }
+    }
+    if (tempStreak > bestStreak) bestStreak = tempStreak;
+    prevDate = curDate;
+  }
+
+  if (currentStreak > bestStreak) bestStreak = currentStreak;
+
+  return { currentStreak, bestStreak };
 }
 
 export async function GET(request: NextRequest) {
@@ -55,7 +80,7 @@ export async function GET(request: NextRequest) {
       include: {
         logs: {
           orderBy: { date: "desc" },
-          take: 30,
+          take: 60,
         },
       },
       orderBy: { createdAt: "asc" },
@@ -110,21 +135,53 @@ export async function GET(request: NextRequest) {
         include: {
           logs: {
             orderBy: { date: "desc" },
-            take: 30,
+            take: 60,
           },
         },
         orderBy: { createdAt: "asc" },
       });
     }
 
+    // Calcular días de la semana actual (Lunes a Domingo)
+    const now = new Date();
+    const weekStart = startOfWeek(now, { weekStartsOn: 1 });
+    const currentWeekDays = Array.from({ length: 7 }, (_, i) => {
+      const d = addDays(weekStart, i);
+      const dStr = format(d, "yyyy-MM-dd");
+      return {
+        date: dStr,
+        dayName: format(d, "EEE", { locale: es }).toUpperCase().slice(0, 2),
+        dayNumber: d.getDate(),
+        isToday: dStr === todayStr,
+      };
+    });
+
     const formatted = habits.map((h) => {
       const isCompletedToday = h.logs.some((l) => l.date === todayStr && l.completed);
-      const streak = calculateStreak(h.logs);
+      const { currentStreak, bestStreak } = calculateStreaks(h.logs);
+
+      // Cumplidos esta semana
       const weeklyCompletedCount = h.logs.filter((l) => {
+        const isCompletedInWeek = currentWeekDays.some((w) => w.date === l.date);
+        return isCompletedInWeek && l.completed;
+      }).length;
+
+      // Cumplidos últimos 30 días
+      const monthlyCompletedCount = h.logs.filter((l) => {
         const logDate = new Date(l.date);
         const diffDays = (Date.now() - logDate.getTime()) / (1000 * 3600 * 24);
-        return diffDays <= 7 && l.completed;
+        return diffDays <= 30 && l.completed;
       }).length;
+
+      const consistencyPercent = Math.min(100, Math.round((monthlyCompletedCount / 30) * 100));
+
+      const weekDaysStatus = currentWeekDays.map((w) => {
+        const isDone = h.logs.some((l) => l.date === w.date && l.completed);
+        return {
+          ...w,
+          completed: isDone,
+        };
+      });
 
       return {
         id: h.id,
@@ -133,10 +190,17 @@ export async function GET(request: NextRequest) {
         category: h.category,
         frequency: h.frequency,
         targetDays: h.targetDays,
+        active: h.active,
         isCompletedToday,
-        streak,
+        streak: currentStreak,
+        bestStreak,
         weeklyCompletedCount,
-        recentLogs: h.logs.slice(0, 7),
+        monthlyCompletedCount,
+        consistencyPercent,
+        recentLogs: h.logs.slice(0, 30),
+        weekDaysStatus,
+        createdAt: h.createdAt,
+        updatedAt: h.updatedAt,
       };
     });
 
@@ -151,8 +215,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const { title, description, category, frequency, targetDays } = body;
 
-    if (!title || typeof title !== "string") {
-      return apiError("Título es obligatorio", { status: 400 });
+    if (!title || typeof title !== "string" || title.trim() === "") {
+      return apiError("El título del hábito es obligatorio.", { status: 400 });
     }
 
     const habit = await prisma.habit.create({
@@ -161,7 +225,7 @@ export async function POST(request: NextRequest) {
         description: description?.trim() || null,
         category: category || "tech",
         frequency: frequency || "DAILY",
-        targetDays: targetDays || 7,
+        targetDays: typeof targetDays === "number" ? targetDays : 7,
       },
     });
 

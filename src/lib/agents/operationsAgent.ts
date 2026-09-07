@@ -258,8 +258,8 @@ Cero emojis. Tono institucional, riguroso y técnico.`,
     const userPayload = JSON.stringify({
       targetDate: targetDate.toISOString().split("T")[0],
       freeSlots: freeSlots.map((s) => ({
-        start: s.start.toISOString(),
-        end: s.end.toISOString(),
+        start: new Date(s.start).toISOString(),
+        end: new Date(s.end).toISOString(),
         durationMinutes: s.durationMinutes,
       })),
       pendingTasks: pendingTasks.map((t) => ({

@@ -1,18 +1,15 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
+import { motion } from "framer-motion";
 import { 
   TaskEntity, 
-  TaskStatus,
-  ProjectEntity, 
-  CalendarEventEntity, 
-  FreeTimeSlot, 
-  PlanningAgentProposal,
-  AiActionEntity,
-  AiActionStatus
+  PlanningAgentProposal
 } from "@/lib/types";
+import { useLifeOS } from "@/lib/store/life-os-store";
+import { calculateIntelligentTimeBlocks } from "@/lib/engine/time-blocking-engine";
 import { DailyTimeline } from "@/components/dashboard/DailyTimeline";
 import { PlanningWidget } from "@/components/dashboard/PlanningWidget";
 import { AiActivityFeed } from "@/components/dashboard/AiActivityFeed";
@@ -20,155 +17,106 @@ import { MultidomainRadar } from "@/components/dashboard/MultidomainRadar";
 import { HabitTrackerWidget } from "@/components/habits/HabitTrackerWidget";
 import { TaskCard } from "@/components/tasks/TaskCard";
 import { TaskModal } from "@/components/tasks/TaskModal";
+import { VoiceInputButton } from "@/components/voice/VoiceInputButton";
+import { VisionScheduleButton } from "@/components/vision/VisionScheduleButton";
 import { 
   RefreshCw, 
   Plus, 
   Sparkles,
   ArrowRight,
-  Bot
+  Bot,
+  Calendar,
+  Flame,
+  CheckSquare,
+  Activity,
+  Zap,
+  Radio,
+  Sliders,
+  CheckCircle2
 } from "lucide-react";
 import Link from "next/link";
 
 export default function DashboardPage() {
-  const [tasks, setTasks] = useState<TaskEntity[]>([]);
-  const [projects, setProjects] = useState<ProjectEntity[]>([]);
-  const [events, setEvents] = useState<CalendarEventEntity[]>([]);
-  const [freeSlots, setFreeSlots] = useState<FreeTimeSlot[]>([]);
-  const [aiActions, setAiActions] = useState<AiActionEntity[]>([]);
-  const [proposal, setProposal] = useState<PlanningAgentProposal | null>(null);
-  
-  const [isLoading, setIsLoading] = useState(true);
-  const [isPlanningLoading, setIsPlanningLoading] = useState(false);
-  const [isSyncingCalendar, setIsSyncingCalendar] = useState(false);
+  const {
+    tasks,
+    projects,
+    events,
+    freeSlots,
+    habits,
+    aiActions,
+    isLoading,
+    isSyncingCalendar,
+    syncCalendar,
+    toggleTaskStatus,
+    saveTask,
+    deleteTask,
+    handleActionStatusChange,
+    applyAutoSchedule,
+    setActiveFocusTask,
+    setFocusModalOpen,
+    refreshAll,
+  } = useLifeOS();
+
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<TaskEntity | null>(null);
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
+  const [isAutoScheduling, setIsAutoScheduling] = useState(false);
+  const [proposal, setProposal] = useState<PlanningAgentProposal | null>(null);
+  const [isPlanningLoading, setIsPlanningLoading] = useState(false);
 
   const todayStr = format(new Date(), "EEEE, d 'de' MMMM 'de' yyyy", { locale: es });
 
-  const loadData = async () => {
+  const pendingTasks = useMemo(
+    () => tasks.filter((t) => t.status === "PENDING" || t.status === "IN_PROGRESS"),
+    [tasks]
+  );
+  const urgentTasks = useMemo(
+    () => pendingTasks.filter((t) => t.priority === "URGENT" || t.priority === "CRITICAL" || t.priority === "HIGH"),
+    [pendingTasks]
+  );
+  const totalFreeMinutes = useMemo(
+    () => freeSlots.reduce((acc, s) => acc + s.durationMinutes, 0),
+    [freeSlots]
+  );
+  const completedHabitsToday = useMemo(
+    () => habits.filter((h) => h.active && h.isCompletedToday).length,
+    [habits]
+  );
+  const totalActiveHabits = useMemo(
+    () => habits.filter((h) => h.active).length,
+    [habits]
+  );
+
+  const handleSyncCalendarClick = async () => {
     try {
-      setIsLoading(true);
-      const [tasksRes, projectsRes, calendarRes, actionsRes] = await Promise.all([
-        fetch("/api/tasks?status=ALL", { cache: "no-store" }),
-        fetch("/api/projects", { cache: "no-store" }),
-        fetch("/api/calendar/events", { cache: "no-store" }),
-        fetch("/api/agents/actions", { cache: "no-store" }),
-      ]);
-
-      const tasksData = await tasksRes.json();
-      const projectsData = await projectsRes.json();
-      const calendarData = await calendarRes.json();
-      const actionsData = await actionsRes.json();
-
-      if (tasksData.success) setTasks(tasksData.data);
-      if (projectsData.success) setProjects(projectsData.data);
-      if (calendarData.success) {
-        setEvents(calendarData.data.events);
-        setFreeSlots(calendarData.data.freeSlots);
-      }
-      if (actionsData.success) {
-        setAiActions(actionsData.data);
-      }
-    } catch (err) {
-      console.error("Error al cargar datos del dashboard:", err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const handleSyncCalendar = async () => {
-    try {
-      setIsSyncingCalendar(true);
-      setSyncFeedback(null);
-      const res = await fetch("/api/calendar/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json();
-      setSyncFeedback(data.message || "Calendario sincronizado correctamente.");
+      const msg = await syncCalendar();
+      setSyncFeedback(msg);
       setTimeout(() => setSyncFeedback(null), 5000);
-      await loadData();
-    } catch (err) {
-      console.error("Error al sincronizar calendario:", err);
-      setSyncFeedback("Error de conexión al sincronizar calendario.");
+    } catch {
+      setSyncFeedback("Error al sincronizar Google Calendar.");
+      setTimeout(() => setSyncFeedback(null), 5000);
+    }
+  };
+
+  // 1-Click Auto-Schedule Inteligente
+  const handleQuickAutoSchedule = async () => {
+    try {
+      setIsAutoScheduling(true);
+      const plan = calculateIntelligentTimeBlocks(tasks, freeSlots, habits);
+      if (plan.assignments.length === 0) {
+        setSyncFeedback("No hay ventanas libres suficientes o no hay tareas pendientes.");
+        setTimeout(() => setSyncFeedback(null), 5000);
+        return;
+      }
+
+      await applyAutoSchedule(plan.assignments);
+      setSyncFeedback(`Time-Blocking ejecutado: ${plan.assignments.length} tareas programadas.`);
+      setTimeout(() => setSyncFeedback(null), 5000);
+    } catch {
+      setSyncFeedback("Error al aplicar la planificacion automatica.");
+      setTimeout(() => setSyncFeedback(null), 5000);
     } finally {
-      setIsSyncingCalendar(false);
-    }
-  };
-
-  const handleActionStatusChange = async (actionId: string, status: AiActionStatus) => {
-    try {
-      const res = await fetch(`/api/agents/actions/${actionId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status, execute: true }),
-      });
-
-      if (res.ok) {
-        setAiActions((prev) =>
-          prev.map((a) => (a.id === actionId ? { ...a, status } : a))
-        );
-        // Si fue aprobada, recargar tareas por si se materializó una nueva tarea
-        if (status === "APPROVED") {
-          await loadData();
-        }
-      }
-    } catch (err) {
-      console.error("Error al actualizar estado de acción IA:", err);
-    }
-  };
-
-  const handleStatusToggle = async (taskId: string, currentStatus: string) => {
-    const nextStatus: TaskStatus = currentStatus === "COMPLETED" ? "PENDING" : "COMPLETED";
-    try {
-      const res = await fetch(`/api/tasks/${taskId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: nextStatus }),
-      });
-      if (res.ok) {
-        setTasks((prev) =>
-          prev.map((t) => (t.id === taskId ? { ...t, status: nextStatus } : t))
-        );
-      }
-    } catch (err) {
-      console.error("Error al cambiar estado de tarea:", err);
-    }
-  };
-
-  const handleSaveTask = async (taskData: Partial<TaskEntity>) => {
-    const url = taskData.id ? `/api/tasks/${taskData.id}` : "/api/tasks";
-    const method = taskData.id ? "PATCH" : "POST";
-
-    const res = await fetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(taskData),
-    });
-
-    if (res.ok) {
-      await loadData();
-    } else {
-      const errorData = await res.json();
-      throw new Error(errorData.error || "Error al procesar la tarea");
-    }
-  };
-
-  const handleDeleteTask = async (taskId: string) => {
-    if (!confirm("¿Deseas eliminar esta tarea permanentemente?")) return;
-    try {
-      const res = await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
-      if (res.ok) {
-        setTasks((prev) => prev.filter((t) => t.id !== taskId));
-      }
-    } catch (err) {
-      console.error("Error al eliminar tarea:", err);
+      setIsAutoScheduling(false);
     }
   };
 
@@ -182,7 +130,6 @@ export default function DashboardPage() {
       });
       const data = await res.json();
       if (data.success) {
-        // Adaptar respuesta de OperationsAgent a PlanningAgentProposal
         const opsData = data.data;
         const adaptedProposal: PlanningAgentProposal = {
           generatedAt: opsData.generatedAt,
@@ -199,53 +146,61 @@ export default function DashboardPage() {
         setProposal(adaptedProposal);
       }
     } catch (err) {
-      console.error("Error al ejecutar agente de planificación:", err);
+      console.error("Error al ejecutar agente de planificacion:", err);
     } finally {
       setIsPlanningLoading(false);
     }
   };
 
   const handleApplyPlan = async (assignments: PlanningAgentProposal["assignments"]) => {
-    const res = await fetch("/api/agents/planning", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "APPLY",
-        assignments,
-      }),
-    });
-    if (res.ok) {
-      await loadData();
-    }
+    await applyAutoSchedule(assignments);
   };
-
-  const pendingTasks = tasks.filter((t) => t.status === "PENDING" || t.status === "IN_PROGRESS");
-  const completedTodayCount = tasks.filter((t) => t.status === "COMPLETED").length;
-  const totalFreeMinutes = freeSlots.reduce((acc, s) => acc + s.durationMinutes, 0);
-  const pendingActionsCount = aiActions.filter((a) => a.status === "PENDING_REVIEW").length;
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto w-full">
-      {/* Top Header */}
-      <div className="flex items-center justify-between pb-4 border-b border-surface-800 flex-wrap gap-4">
+      {/* Top Header Ejecutivo */}
+      <div className="flex items-center justify-between pb-4 border-b border-white/[0.08] flex-wrap gap-4">
         <div>
-          <span className="text-[11px] font-mono uppercase tracking-wider text-surface-400 block capitalize">
+          <span className="text-[11px] font-mono uppercase tracking-widest text-surface-400 block capitalize">
             {todayStr}
           </span>
-          <h1 className="text-xl font-bold tracking-tight text-surface-100">
-            Vista Diaria y Planificación Operativa
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-surface-50 flex items-center gap-2.5 mt-0.5">
+            Vista Diaria & Sistema Operativo
           </h1>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 flex-wrap">
           <button
             type="button"
-            onClick={handleSyncCalendar}
-            disabled={isSyncingCalendar}
-            className="flex items-center gap-1.5 px-3 py-2 bg-surface-900 hover:bg-surface-800 text-surface-300 border border-surface-700 rounded text-xs transition-colors disabled:opacity-50"
+            onClick={handleQuickAutoSchedule}
+            disabled={isAutoScheduling || pendingTasks.length === 0}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-cyan-600/90 to-blue-600/90 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl text-xs font-medium transition-all shadow-md shadow-cyan-600/20 active:scale-95 disabled:opacity-50"
+            title="Encajar tareas en ventanas libres automaticamente"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isSyncingCalendar ? "animate-spin text-accent-500" : ""}`} />
-            Sincronizar Calendario
+            <Zap className="w-3.5 h-3.5 fill-current" />
+            <span>{isAutoScheduling ? "Calibrando..." : "Auto-Schedule 1-Clic"}</span>
+          </button>
+
+          <VisionScheduleButton
+            variant="pill"
+            onRoutineApplied={refreshAll}
+            title="Importar horario de universidad o rutina desde foto"
+          />
+
+          <VoiceInputButton
+            variant="pill"
+            onActionCompleted={refreshAll}
+            title="Dictar tarea o idea"
+          />
+
+          <button
+            type="button"
+            onClick={handleSyncCalendarClick}
+            disabled={isSyncingCalendar}
+            className="flex items-center gap-1.5 px-3 py-2 bg-surface-900/80 hover:bg-surface-800 text-surface-300 border border-white/10 rounded-xl text-xs transition-all disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isSyncingCalendar ? "animate-spin text-cyan-400" : ""}`} />
+            <span className="hidden sm:inline">Sincronizar Google</span>
           </button>
 
           <button
@@ -254,61 +209,97 @@ export default function DashboardPage() {
               setSelectedTask(null);
               setIsTaskModalOpen(true);
             }}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-accent-600 hover:bg-accent-500 text-white rounded text-xs font-medium transition-colors"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-surface-800 hover:bg-surface-700 text-surface-100 border border-white/15 rounded-xl text-xs font-medium transition-all shadow-xs active:scale-95"
           >
             <Plus className="w-3.5 h-3.5" />
-            Nueva Tarea
+            <span>Nueva Tarea</span>
           </button>
         </div>
       </div>
 
       {syncFeedback && (
-        <div className="p-3 rounded bg-surface-900 border border-brand-800/80 text-xs text-brand-300 flex items-center justify-between">
-          <span>{syncFeedback}</span>
-        </div>
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{ willChange: "transform" }}
+          className="p-3.5 rounded-2xl bg-surface-900/90 border border-cyan-500/40 text-xs text-cyan-300 flex items-center justify-between shadow-lg"
+        >
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-cyan-400 shrink-0" />
+            <span>{syncFeedback}</span>
+          </div>
+        </motion.div>
       )}
 
-      {/* KPI Cards */}
+      {/* KPI Cards Bento Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-surface-900 border border-surface-800 rounded-lg p-4">
-          <div className="text-xs text-surface-400 font-medium">Tareas Pendientes</div>
-          <div className="text-2xl font-bold text-surface-100 mt-1 font-mono">
+        <motion.div 
+          whileHover={{ y: -2 }}
+          style={{ willChange: "transform" }}
+          className="glass-card rounded-2xl p-4 sm:p-5 border border-white/[0.08]"
+        >
+          <div className="flex items-center justify-between text-xs text-surface-400">
+            <span>Tareas Pendientes</span>
+            <CheckSquare className="w-4 h-4 text-cyan-400" />
+          </div>
+          <div className="text-2xl font-bold text-surface-50 mt-1.5 font-mono">
             {pendingTasks.length}
           </div>
           <div className="text-[11px] text-surface-400 mt-1">
-            {pendingTasks.filter(t => t.priority === "URGENT" || t.priority === "HIGH").length} de alta prioridad
+            {urgentTasks.length} de prioridad alta/urgente
           </div>
-        </div>
+        </motion.div>
 
-        <div className="bg-surface-900 border border-surface-800 rounded-lg p-4">
-          <div className="text-xs text-surface-400 font-medium">Eventos Fijos Hoy</div>
-          <div className="text-2xl font-bold text-surface-100 mt-1 font-mono">
-            {events.length}
+        <motion.div 
+          whileHover={{ y: -2 }}
+          style={{ willChange: "transform" }}
+          className="glass-card rounded-2xl p-4 sm:p-5 border border-white/[0.08]"
+        >
+          <div className="flex items-center justify-between text-xs text-surface-400">
+            <span>Agenda Hoy</span>
+            <Calendar className="w-4 h-4 text-blue-400" />
+          </div>
+          <div className="text-2xl font-bold text-blue-400 mt-1.5 font-mono">
+            {events.length} eventos
           </div>
           <div className="text-[11px] text-surface-400 mt-1">
-            Google Calendar (Europe/Madrid)
+            Google Calendar sincronizado
           </div>
-        </div>
+        </motion.div>
 
-        <div className="bg-surface-900 border border-surface-800 rounded-lg p-4">
-          <div className="text-xs text-surface-400 font-medium">Tiempo Libre Disponible</div>
-          <div className="text-2xl font-bold text-brand-400 mt-1 font-mono">
-            {totalFreeMinutes} min
+        <motion.div 
+          whileHover={{ y: -2 }}
+          style={{ willChange: "transform" }}
+          className="glass-card rounded-2xl p-4 sm:p-5 border border-white/[0.08]"
+        >
+          <div className="flex items-center justify-between text-xs text-surface-400">
+            <span>Ventanas Libres</span>
+            <Activity className="w-4 h-4 text-emerald-400" />
+          </div>
+          <div className="text-2xl font-bold text-emerald-400 mt-1.5 font-mono">
+            {(totalFreeMinutes / 60).toFixed(1)} h
           </div>
           <div className="text-[11px] text-surface-400 mt-1">
-            En {freeSlots.length} ventanas de trabajo
+            En {freeSlots.length} bloques disponibles
           </div>
-        </div>
+        </motion.div>
 
-        <div className="bg-surface-900 border border-surface-800 rounded-lg p-4">
-          <div className="text-xs text-surface-400 font-medium">Acciones IA Pendientes</div>
-          <div className="text-2xl font-bold text-purple-400 mt-1 font-mono">
-            {pendingActionsCount}
+        <motion.div 
+          whileHover={{ y: -2 }}
+          style={{ willChange: "transform" }}
+          className="glass-card rounded-2xl p-4 sm:p-5 border border-white/[0.08]"
+        >
+          <div className="flex items-center justify-between text-xs text-surface-400">
+            <span>Habitos Hoy</span>
+            <Flame className="w-4 h-4 text-amber-400" />
+          </div>
+          <div className="text-2xl font-bold text-amber-400 mt-1.5 font-mono">
+            {completedHabitsToday} / {totalActiveHabits}
           </div>
           <div className="text-[11px] text-surface-400 mt-1">
-            Validación humana en 1 clic
+            {totalActiveHabits - completedHabitsToday} pendientes de completar
           </div>
-        </div>
+        </motion.div>
       </div>
 
       {/* AI Activity Feed */}
@@ -329,44 +320,60 @@ export default function DashboardPage() {
             isLoading={isPlanningLoading}
           />
 
-          {/* Pending Tasks Section */}
-          <div className="bg-surface-900 border border-surface-800 rounded-lg p-5">
-            <div className="flex items-center justify-between pb-4 mb-4 border-b border-surface-800">
+          {/* Pending Tasks Section con Focus Launch */}
+          <div className="glass-panel rounded-2xl p-5 space-y-4 border border-white/10 shadow-xl">
+            <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
               <div>
-                <h3 className="text-xs font-semibold text-surface-100 uppercase tracking-wider">
+                <h3 className="text-xs font-semibold text-surface-100 uppercase tracking-wider flex items-center gap-2">
+                  <CheckSquare className="w-4 h-4 text-cyan-400" />
                   Tareas Pendientes Priorizadas
                 </h3>
-                <p className="text-[11px] text-surface-400">
-                  Ordenadas por urgencia y fecha límite
+                <p className="text-[11px] text-surface-400 mt-0.5">
+                  Respuesta instantanea de 0ms al alternar estados
                 </p>
               </div>
 
               <Link
                 href="/tasks"
-                className="text-xs text-accent-400 hover:text-accent-300 flex items-center gap-1 font-medium"
+                className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1 font-medium transition-colors"
               >
-                Ver todas ({tasks.length})
+                <span>Ver todas ({tasks.length})</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </Link>
             </div>
 
             {pendingTasks.length === 0 ? (
-              <div className="py-8 text-center text-xs text-surface-400">
-                No tienes tareas pendientes para hoy. Buen trabajo.
+              <div className="py-8 text-center text-xs text-surface-400 glass-card rounded-2xl">
+                No tienes tareas pendientes para hoy. El sistema esta al dia.
               </div>
             ) : (
               <div className="space-y-2.5">
                 {pendingTasks.slice(0, 6).map((task) => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    onStatusToggle={handleStatusToggle}
-                    onEdit={(t) => {
-                      setSelectedTask(t);
-                      setIsTaskModalOpen(true);
-                    }}
-                    onDelete={handleDeleteTask}
-                  />
+                  <div key={task.id} className="relative group">
+                    <TaskCard
+                      task={task}
+                      onStatusToggle={() => toggleTaskStatus(task.id)}
+                      onEdit={(t) => {
+                        setSelectedTask(t);
+                        setIsTaskModalOpen(true);
+                      }}
+                      onDelete={() => deleteTask(task.id)}
+                    />
+                    
+                    {/* Boton rapido de Focus Studio sobre la tarea */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveFocusTask(task);
+                        setFocusModalOpen(true);
+                      }}
+                      className="absolute right-14 top-3 px-2 py-1 rounded-lg bg-surface-900/90 hover:bg-cyan-950 text-[10px] font-mono text-cyan-300 border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1"
+                      title="Abrir Focus Studio en esta tarea"
+                    >
+                      <Radio className="w-3 h-3 text-cyan-400" />
+                      <span>Focus</span>
+                    </button>
+                  </div>
                 ))}
               </div>
             )}
@@ -397,7 +404,9 @@ export default function DashboardPage() {
           setIsTaskModalOpen(false);
           setSelectedTask(null);
         }}
-        onSave={handleSaveTask}
+        onSave={async (d) => {
+          await saveTask(d);
+        }}
         task={selectedTask}
         projects={projects}
       />

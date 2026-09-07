@@ -257,13 +257,13 @@ Reglas estrictas:
       fixedEvents: fixedEvents.map((e) => ({
         id: e.id,
         summary: e.summary,
-        start: e.startTime.toISOString(),
-        end: e.endTime.toISOString(),
+        start: new Date(e.startTime).toISOString(),
+        end: new Date(e.endTime).toISOString(),
         isAllDay: e.isAllDay,
       })),
       calculatedFreeSlots: freeSlots.map((s) => ({
-        start: s.start.toISOString(),
-        end: s.end.toISOString(),
+        start: new Date(s.start).toISOString(),
+        end: new Date(s.end).toISOString(),
         durationMinutes: s.durationMinutes,
       })),
       pendingTasks: pendingTasks.map((t) => ({

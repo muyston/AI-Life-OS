@@ -8,9 +8,7 @@ import {
   GraduationCap, 
   Dumbbell, 
   User, 
-  AlertCircle,
-  CheckCircle2,
-  PieChart
+  CheckCircle2 
 } from "lucide-react";
 import { ProjectEntity, TaskEntity, ProjectCategory } from "@/lib/types";
 
@@ -37,17 +35,15 @@ export function MultidomainRadar({ projects, tasks }: MultidomainRadarProps) {
       const pendingTasks = catTasks.filter((t) => t.status === "PENDING" || t.status === "IN_PROGRESS").length;
       const completedTasks = catTasks.filter((t) => t.status === "COMPLETED").length;
 
-      // Calcular peso relativo del dominio
       const sharePercent = Math.round(((catTasks.length || catProjects.length) / (totalTasksCount || 1)) * 100);
 
-      // Score de salud del dominio (0 a 100)
       let healthScore = 85;
       if (catProjects.length === 0 && catTasks.length === 0) {
-        healthScore = 40; // Desatendido
+        healthScore = 40;
       } else if (pendingTasks > 4 && completedTasks === 0) {
-        healthScore = 55; // Cuello de botella
+        healthScore = 55;
       } else if (completedTasks > 0) {
-        healthScore = 95; // Activo y con tracción
+        healthScore = 95;
       }
 
       return {
@@ -67,9 +63,9 @@ export function MultidomainRadar({ projects, tasks }: MultidomainRadarProps) {
   );
 
   return (
-    <div className="bg-surface-900 border border-surface-800 rounded-lg p-5 space-y-4">
+    <div className="glass-panel rounded-2xl p-5 space-y-4 border border-white/10 shadow-xl">
       {/* Header */}
-      <div className="flex items-center justify-between pb-3 border-b border-surface-800">
+      <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
         <div>
           <span className="text-[10px] font-mono uppercase tracking-wider text-surface-400 block">
             Auditoría de Carga Cognitiva y Equilibrio
@@ -84,7 +80,7 @@ export function MultidomainRadar({ projects, tasks }: MultidomainRadarProps) {
           <div className="text-xs font-mono font-bold text-cyan-400">
             {globalHealthScore}% Salud Global
           </div>
-          <span className="text-[10px] text-surface-400 font-mono">5 Dominios Activos</span>
+          <span className="text-[10px] text-surface-400 font-mono">5 Dominios</span>
         </div>
       </div>
 
@@ -113,7 +109,7 @@ export function MultidomainRadar({ projects, tasks }: MultidomainRadarProps) {
                 <div
                   className={`h-full ${d.barColor} rounded-full transition-all duration-500`}
                   style={{ width: `${d.healthScore}%` }}
-                ></div>
+                />
               </div>
             </div>
           );
@@ -121,7 +117,7 @@ export function MultidomainRadar({ projects, tasks }: MultidomainRadarProps) {
       </div>
 
       {/* Strategic Insight */}
-      <div className="p-3 rounded-lg bg-surface-950 border border-surface-800 text-[11px] text-surface-300 flex items-start gap-2.5">
+      <div className="p-3 rounded-xl glass-card text-[11px] text-surface-300 flex items-start gap-2.5">
         <CheckCircle2 className="w-4 h-4 text-brand-400 shrink-0 mt-0.5" />
         <div>
           <span className="font-semibold text-surface-200 block">Diagnóstico de Equilibrio:</span>

@@ -4,6 +4,7 @@ import { HeaderNav } from "@/components/layout/HeaderNav";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { CommandPalette } from "@/components/layout/CommandPalette";
 import { FocusModeModal } from "@/components/focus/FocusModeModal";
+import { LifeOSProvider } from "@/lib/store/life-os-store";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -36,16 +37,18 @@ export default function RootLayout({
   return (
     <html lang="es" className="dark">
       <body className="bg-surface-950 text-surface-50 antialiased flex min-h-screen">
-        <Sidebar />
-        <div className="flex-1 flex flex-col min-w-0 bg-surface-950">
-          <HeaderNav />
-          <main className="flex-1 flex flex-col min-w-0 bg-surface-950 overflow-y-auto pb-20 md:pb-0">
-            {children}
-          </main>
-        </div>
-        <BottomNav />
-        <CommandPalette />
-        <FocusModeModal />
+        <LifeOSProvider>
+          <Sidebar />
+          <div className="flex-1 flex flex-col min-w-0 bg-surface-950">
+            <HeaderNav />
+            <main className="flex-1 flex flex-col min-w-0 bg-surface-950 overflow-y-auto pb-20 md:pb-0">
+              {children}
+            </main>
+          </div>
+          <BottomNav />
+          <CommandPalette />
+          <FocusModeModal />
+        </LifeOSProvider>
       </body>
     </html>
   );

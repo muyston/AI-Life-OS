@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { CalendarEventEntity, FreeTimeSlot } from "@/lib/types";
+import { useState, useEffect, useCallback } from "react";
 import { 
   Calendar, 
   RefreshCw, 
@@ -17,11 +16,32 @@ import {
   X,
   ShieldCheck,
   CalendarCheck,
-  Share2
+  Share2,
+  ChevronLeft,
+  ChevronRight,
+  LayoutGrid,
+  Columns,
+  CalendarDays,
+  Plus
 } from "lucide-react";
-import { format } from "date-fns";
+import { 
+  format, 
+  addMonths, 
+  subMonths, 
+  addWeeks, 
+  subWeeks, 
+  addDays, 
+  subDays 
+} from "date-fns";
 import { es } from "date-fns/locale";
+import { CalendarEventEntity, FreeTimeSlot, TaskEntity, CalendarViewType, TaskStatus } from "@/lib/types";
+import { CalendarMonthView } from "@/components/calendar/CalendarMonthView";
+import { CalendarWeekView } from "@/components/calendar/CalendarWeekView";
+import { CalendarDayView } from "@/components/calendar/CalendarDayView";
+import { CalendarTodoPanel } from "@/components/calendar/CalendarTodoPanel";
 import { CalendarExportModal } from "@/components/calendar/CalendarExportModal";
+import { VoiceInputButton } from "@/components/voice/VoiceInputButton";
+import { VisionScheduleButton } from "@/components/vision/VisionScheduleButton";
 
 interface CalendarConfigData {
   icalUrl: string;
@@ -35,10 +55,13 @@ interface CalendarConfigData {
 
 export default function CalendarPage() {
   const [events, setEvents] = useState<CalendarEventEntity[]>([]);
+  const [tasks, setTasks] = useState<TaskEntity[]>([]);
   const [freeSlots, setFreeSlots] = useState<FreeTimeSlot[]>([]);
-  const [selectedDate, setSelectedDate] = useState<string>(
-    new Date().toISOString().split("T")[0]
-  );
+  const [currentDate, setCurrentDate] = useState<Date>(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [viewMode, setViewMode] = useState<CalendarViewType>("month");
+  const [mobileTab, setMobileTab] = useState<"calendar" | "todo">("calendar");
+
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null);
@@ -50,21 +73,32 @@ export default function CalendarPage() {
   const [inputIcalUrl, setInputIcalUrl] = useState("");
   const [isSavingConfig, setIsSavingConfig] = useState(false);
 
-  const loadCalendarData = async (dateStr: string) => {
+  const selectedDateStr = format(selectedDate, "yyyy-MM-dd");
+
+  const loadCalendarData = useCallback(async (dateStr: string) => {
     try {
       setIsLoading(true);
-      const res = await fetch(`/api/calendar/events?date=${dateStr}`);
-      const data = await res.json();
-      if (data.success) {
-        setEvents(data.data.events);
-        setFreeSlots(data.data.freeSlots);
+      const [calRes, tasksRes] = await Promise.all([
+        fetch(`/api/calendar/events?date=${dateStr}`, { cache: "no-store" }),
+        fetch("/api/tasks?status=ALL", { cache: "no-store" }),
+      ]);
+
+      const calData = await calRes.json();
+      const tasksData = await tasksRes.json();
+
+      if (calData.success) {
+        setEvents(calData.data.events || []);
+        setFreeSlots(calData.data.freeSlots || []);
+      }
+      if (tasksData.success) {
+        setTasks(tasksData.data || []);
       }
     } catch (err) {
-      console.error("Error al cargar eventos del calendario:", err);
+      console.error("Error al cargar datos del calendario:", err);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   const loadCalendarConfig = async () => {
     try {
@@ -80,9 +114,40 @@ export default function CalendarPage() {
   };
 
   useEffect(() => {
-    loadCalendarData(selectedDate);
+    loadCalendarData(selectedDateStr);
     loadCalendarConfig();
-  }, [selectedDate]);
+  }, [selectedDateStr, loadCalendarData]);
+
+  // Navegación de fechas
+  const handlePrev = () => {
+    if (viewMode === "month") {
+      setCurrentDate((prev) => subMonths(prev, 1));
+    } else if (viewMode === "week") {
+      setCurrentDate((prev) => subWeeks(prev, 1));
+      setSelectedDate((prev) => subWeeks(prev, 1));
+    } else {
+      setSelectedDate((prev) => subDays(prev, 1));
+      setCurrentDate((prev) => subDays(prev, 1));
+    }
+  };
+
+  const handleNext = () => {
+    if (viewMode === "month") {
+      setCurrentDate((prev) => addMonths(prev, 1));
+    } else if (viewMode === "week") {
+      setCurrentDate((prev) => addWeeks(prev, 1));
+      setSelectedDate((prev) => addWeeks(prev, 1));
+    } else {
+      setSelectedDate((prev) => addDays(prev, 1));
+      setCurrentDate((prev) => addDays(prev, 1));
+    }
+  };
+
+  const handleToday = () => {
+    const today = new Date();
+    setCurrentDate(today);
+    setSelectedDate(today);
+  };
 
   const handleSync = async () => {
     try {
@@ -97,12 +162,12 @@ export default function CalendarPage() {
       if (data.success && data.data?.eventsSynced > 0) {
         setSyncFeedback({
           type: "success",
-          message: data.message || `Sincronizacion completada: ${data.data.eventsSynced} eventos actualizados.`,
+          message: data.message || `Sincronización completada: ${data.data.eventsSynced} eventos actualizados.`,
         });
       } else if (data.success) {
         setSyncFeedback({
           type: "info",
-          message: data.message || "Sincronizacion ejecutada sin nuevos eventos detectados.",
+          message: data.message || "Sincronización ejecutada sin nuevos eventos detectados.",
         });
       } else {
         setSyncFeedback({
@@ -110,12 +175,12 @@ export default function CalendarPage() {
           message: data.message || "Error al sincronizar con Google Calendar.",
         });
       }
-      await loadCalendarData(selectedDate);
+      await loadCalendarData(selectedDateStr);
       await loadCalendarConfig();
-    } catch (err) {
+    } catch {
       setSyncFeedback({
         type: "error",
-        message: "Error de conexion al sincronizar con el servidor.",
+        message: "Error de conexión al sincronizar con el servidor.",
       });
     } finally {
       setIsSyncing(false);
@@ -137,31 +202,23 @@ export default function CalendarPage() {
       const data = await res.json();
 
       if (data.success) {
-        const syncRes = data.data?.syncResult;
-        if (syncRes?.success) {
-          setSyncFeedback({
-            type: "success",
-            message: `URL configurada correctamente. Sincronizados ${syncRes.eventsSynced} eventos.`,
-          });
-        } else {
-          setSyncFeedback({
-            type: "error",
-            message: `URL guardada, pero la descarga devolvio: ${syncRes?.message || "Compruebe que sea la direccion secreta privada."}`,
-          });
-        }
+        setSyncFeedback({
+          type: "success",
+          message: "Enlace iCal guardado y sincronizado con éxito.",
+        });
         setIsConfigOpen(false);
-        await loadCalendarData(selectedDate);
+        await loadCalendarData(selectedDateStr);
         await loadCalendarConfig();
       } else {
         setSyncFeedback({
           type: "error",
-          message: data.error || "No se pudo guardar la configuracion.",
+          message: data.error || "No se pudo guardar la configuración.",
         });
       }
-    } catch (err) {
+    } catch {
       setSyncFeedback({
         type: "error",
-        message: "Error critico al guardar la configuracion.",
+        message: "Error crítico al guardar la configuración.",
       });
     } finally {
       setIsSavingConfig(false);
@@ -182,9 +239,8 @@ export default function CalendarPage() {
         type: "success",
         message: data.message || "Eventos demo cargados en la base de datos.",
       });
-      await loadCalendarData(selectedDate);
-      await loadCalendarConfig();
-    } catch (err) {
+      await loadCalendarData(selectedDateStr);
+    } catch {
       setSyncFeedback({
         type: "error",
         message: "Error al cargar eventos demo.",
@@ -194,62 +250,175 @@ export default function CalendarPage() {
     }
   };
 
-  const totalFreeMinutes = freeSlots.reduce((acc, s) => acc + s.durationMinutes, 0);
+  // To-Do list actions
+  const handleTaskStatusToggle = async (taskId: string, currentStatus: string) => {
+    const nextStatus: TaskStatus = currentStatus === "COMPLETED" ? "PENDING" : "COMPLETED";
+    setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: nextStatus } : t)));
+
+    try {
+      await fetch(`/api/tasks/${taskId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+    } catch {
+      await loadCalendarData(selectedDateStr);
+    }
+  };
+
+  const handleAddTask = async (taskData: Partial<TaskEntity>) => {
+    const res = await fetch("/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(taskData),
+    });
+    if (res.ok) {
+      await loadCalendarData(selectedDateStr);
+    }
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    if (!confirm("¿Deseas eliminar esta tarea?")) return;
+    try {
+      const res = await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
+      if (res.ok) {
+        setTasks((prev) => prev.filter((t) => t.id !== taskId));
+      }
+    } catch (err) {
+      console.error("Error al eliminar tarea:", err);
+    }
+  };
+
+  const formattedMonthHeader = format(
+    viewMode === "day" ? selectedDate : currentDate,
+    viewMode === "day" ? "EEEE, d 'de' MMMM 'de' yyyy" : "MMMM 'de' yyyy",
+    { locale: es }
+  );
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto w-full">
-      {/* Header */}
-      <div className="flex items-center justify-between pb-4 border-b border-surface-800 flex-wrap gap-4">
-        <div>
-          <span className="text-[11px] font-mono uppercase tracking-wider text-surface-400 block">
-            Integracion de Solo Lectura y Deteccion de Huecos
-          </span>
-          <h1 className="text-xl font-bold tracking-tight text-surface-100 flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-accent-500" />
-            Agenda y Google Calendar
-          </h1>
+    <div className="p-4 sm:p-6 lg:p-8 space-y-5 max-w-7xl mx-auto w-full">
+      {/* Top Google Calendar Navigation Header */}
+      <div className="flex items-center justify-between pb-3 border-b border-white/[0.08] flex-wrap gap-4">
+        {/* Date Navigation */}
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-accent-500/20 border border-accent-500/30 flex items-center justify-center text-accent-400">
+            <Calendar className="w-5 h-5" />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleToday}
+              className="px-3 py-1.5 rounded-xl bg-surface-900 hover:bg-surface-800 text-surface-200 border border-white/10 text-xs font-medium transition-all shadow-xs active:scale-95"
+            >
+              Hoy
+            </button>
+
+            <div className="flex items-center bg-surface-950 border border-white/10 rounded-xl p-0.5">
+              <button
+                type="button"
+                onClick={handlePrev}
+                className="p-1.5 rounded-lg text-surface-400 hover:text-surface-100 hover:bg-white/5 transition-colors"
+                title="Anterior"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={handleNext}
+                className="p-1.5 rounded-lg text-surface-400 hover:text-surface-100 hover:bg-white/5 transition-colors"
+                title="Siguiente"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+
+            <h1 className="text-base sm:text-lg font-bold tracking-tight text-surface-50 capitalize ml-1">
+              {formattedMonthHeader}
+            </h1>
+          </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setIsExportOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-surface-900 hover:bg-surface-800 text-surface-200 border border-surface-700 rounded text-xs transition-colors"
-            title="Exportar feed iCal para suscripción desde el móvil"
-          >
-            <Share2 className="w-3.5 h-3.5 text-brand-400" />
-            Exportar Feed iCal
-          </button>
+        {/* View Switcher & Action Tools */}
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {/* Segmented View Switcher */}
+          <div className="flex items-center bg-surface-950/90 border border-white/10 rounded-xl p-1 shadow-xs">
+            <button
+              type="button"
+              onClick={() => setViewMode("month")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                viewMode === "month"
+                  ? "bg-surface-800 text-surface-50 shadow-xs border border-white/10"
+                  : "text-surface-400 hover:text-surface-200"
+              }`}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              <span>Mes</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("week")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                viewMode === "week"
+                  ? "bg-surface-800 text-surface-50 shadow-xs border border-white/10"
+                  : "text-surface-400 hover:text-surface-200"
+              }`}
+            >
+              <Columns className="w-3.5 h-3.5" />
+              <span>Semana</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("day")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                viewMode === "day"
+                  ? "bg-surface-800 text-surface-50 shadow-xs border border-white/10"
+                  : "text-surface-400 hover:text-surface-200"
+              }`}
+            >
+              <CalendarDays className="w-3.5 h-3.5" />
+              <span>Día</span>
+            </button>
+          </div>
+
+          <VisionScheduleButton
+            variant="pill"
+            onRoutineApplied={() => loadCalendarData(selectedDateStr)}
+            title="Importar horario universitario o rutina desde foto"
+          />
+
+          <VoiceInputButton
+            variant="pill"
+            onActionCompleted={() => loadCalendarData(selectedDateStr)}
+            title="Dictar evento o tarea"
+          />
 
           <button
             type="button"
             onClick={() => setIsConfigOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-surface-900 hover:bg-surface-800 text-surface-200 border border-surface-700 rounded text-xs transition-colors"
+            className="p-2 rounded-xl bg-surface-900 hover:bg-surface-800 text-surface-300 border border-white/10 transition-colors"
             title="Configurar enlace iCal de Google Calendar"
           >
-            <Settings className="w-3.5 h-3.5 text-accent-400" />
-            Configurar Enlace iCal
+            <Settings className="w-4 h-4 text-accent-400" />
           </button>
 
           <button
             type="button"
-            onClick={handleSeedDemo}
-            disabled={isSyncing}
-            className="flex items-center gap-1.5 px-3 py-2 bg-surface-900 hover:bg-surface-800 text-surface-300 border border-surface-700 rounded text-xs transition-colors disabled:opacity-50"
-            title="Carga una jornada demo con reuniones para probar sin sincronizar"
+            onClick={() => setIsExportOpen(true)}
+            className="p-2 rounded-xl bg-surface-900 hover:bg-surface-800 text-surface-300 border border-white/10 transition-colors"
+            title="Exportar feed iCal para suscripción móvil"
           >
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            Cargar Demo
+            <Share2 className="w-4 h-4 text-brand-400" />
           </button>
 
           <button
             type="button"
             onClick={handleSync}
             disabled={isSyncing}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-accent-600 hover:bg-accent-500 text-white rounded text-xs font-medium transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-accent-600 hover:bg-accent-500 text-white rounded-xl text-xs font-medium transition-all shadow-md active:scale-95 disabled:opacity-50"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin" : ""}`} />
-            {isSyncing ? "Sincronizando..." : "Sincronizar con Google"}
+            <span className="hidden sm:inline">{isSyncing ? "Sincronizando..." : "Sincronizar Google"}</span>
           </button>
         </div>
       </div>
@@ -257,220 +426,120 @@ export default function CalendarPage() {
       {/* Sync Status Banner */}
       {syncFeedback && (
         <div
-          className={`p-4 rounded-lg border text-xs flex items-start gap-3 ${
+          className={`p-3.5 rounded-xl border text-xs flex items-center justify-between gap-3 ${
             syncFeedback.type === "success"
               ? "bg-emerald-950/40 border-emerald-800/80 text-emerald-200"
               : syncFeedback.type === "error"
               ? "bg-rose-950/40 border-rose-800/80 text-rose-200"
-              : "bg-surface-900 border-surface-700 text-surface-200"
+              : "bg-surface-900/80 border-surface-700 text-surface-200"
           }`}
         >
-          {syncFeedback.type === "success" ? (
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-          ) : syncFeedback.type === "error" ? (
-            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-          ) : (
-            <Info className="w-4 h-4 text-accent-400 shrink-0 mt-0.5" />
-          )}
-          <div className="flex-1">
-            <p className="font-medium">{syncFeedback.message}</p>
-            {syncFeedback.type === "error" && (
-              <button
-                type="button"
-                onClick={() => setIsConfigOpen(true)}
-                className="mt-2 inline-flex items-center gap-1 text-[11px] underline text-accent-400 hover:text-accent-300 font-mono"
-              >
-                Abrir guia de configuracion de iCal &rarr;
-              </button>
+          <div className="flex items-center gap-2">
+            {syncFeedback.type === "success" ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : syncFeedback.type === "error" ? (
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            ) : (
+              <Info className="w-4 h-4 text-accent-400 shrink-0" />
             )}
-          </div>
-        </div>
-      )}
-
-      {/* Connection Status Helper if not configured or 404 alert */}
-      {configData?.isPublicUrl && (
-        <div className="p-4 rounded-lg bg-amber-950/30 border border-amber-800/70 text-amber-200 text-xs flex items-start justify-between gap-4">
-          <div className="flex items-start gap-2.5">
-            <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-            <div>
-              <span className="font-semibold block">Aviso de Privacidad de Google Calendar</span>
-              <p className="text-surface-300 mt-1">
-                La URL configurada actual es de tipo pública. Google Calendar rechaza (404) estas peticiones a menos que el calendario sea 100% público. Utiliza la <strong>Dirección secreta en formato iCal</strong> para sincronización privada e instantánea.
-              </p>
-            </div>
+            <span>{syncFeedback.message}</span>
           </div>
           <button
             type="button"
-            onClick={() => setIsConfigOpen(true)}
-            className="shrink-0 px-3 py-1.5 bg-amber-600/30 hover:bg-amber-600/40 text-amber-200 border border-amber-600/60 rounded text-[11px] font-medium transition-colors"
+            onClick={() => setSyncFeedback(null)}
+            className="text-[11px] text-surface-400 hover:text-surface-200 font-mono"
           >
-            Corregir Enlace iCal
+            Cerrar
           </button>
         </div>
       )}
 
-      {/* Date Selector & Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-surface-900 border border-surface-800 rounded-lg p-4 flex items-center justify-between">
-          <div>
-            <label className="block text-xs text-surface-400 font-medium">Fecha de Consulta</label>
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="mt-1 px-2.5 py-1.5 bg-surface-950 border border-surface-800 rounded text-xs text-surface-100 focus:outline-none focus:border-accent-500"
-            />
-          </div>
-          <Calendar className="w-6 h-6 text-surface-600" />
-        </div>
-
-        <div className="bg-surface-900 border border-surface-800 rounded-lg p-4">
-          <div className="text-xs text-surface-400 font-medium">Eventos Fijos</div>
-          <div className="text-2xl font-bold text-surface-100 mt-1 font-mono">
-            {events.length}
-          </div>
-          <div className="text-[11px] text-surface-400 mt-0.5">
-            Bloquean ventanas de trabajo
-          </div>
-        </div>
-
-        <div className="bg-surface-900 border border-surface-800 rounded-lg p-4">
-          <div className="text-xs text-surface-400 font-medium">Tiempo Libre Disponible</div>
-          <div className="text-2xl font-bold text-brand-400 mt-1 font-mono">
-            {totalFreeMinutes} min
-          </div>
-          <div className="text-[11px] text-surface-400 mt-0.5">
-            En {freeSlots.length} huecos detectados
-          </div>
-        </div>
+      {/* Mobile Tab Switcher (Calendar vs To-Do List) */}
+      <div className="flex md:hidden items-center gap-2 p-1 bg-surface-950 rounded-xl border border-white/10 text-xs">
+        <button
+          type="button"
+          onClick={() => setMobileTab("calendar")}
+          className={`flex-1 py-1.5 rounded-lg font-medium transition-all ${
+            mobileTab === "calendar" ? "bg-surface-800 text-surface-100 shadow-xs" : "text-surface-400"
+          }`}
+        >
+          Calendario
+        </button>
+        <button
+          type="button"
+          onClick={() => setMobileTab("todo")}
+          className={`flex-1 py-1.5 rounded-lg font-medium transition-all ${
+            mobileTab === "todo" ? "bg-surface-800 text-surface-100 shadow-xs" : "text-surface-400"
+          }`}
+        >
+          Organizador To-Do ({tasks.filter(t => t.status === "PENDING").length})
+        </button>
       </div>
 
-      {/* Grid: Events List vs Free Slots */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Events column */}
-        <div className="lg:col-span-7 space-y-4">
-          <div className="bg-surface-900 border border-surface-800 rounded-lg p-5">
-            <h3 className="text-xs font-semibold text-surface-100 uppercase tracking-wider pb-3 border-b border-surface-800 mb-4 flex items-center justify-between">
-              <span>Eventos Sincronizados ({events.length})</span>
-              <span className="text-[11px] font-mono text-surface-400">
-                {format(new Date(`${selectedDate}T00:00:00`), "EEEE, d 'de' MMMM", { locale: es })}
-              </span>
-            </h3>
+      {/* Main Split Grid: Calendar View + To-Do List Panel */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        {/* Left / Center Calendar View */}
+        <div className={`lg:col-span-8 space-y-4 ${mobileTab === "todo" ? "hidden md:block" : "block"}`}>
+          {viewMode === "month" && (
+            <CalendarMonthView
+              currentDate={currentDate}
+              selectedDate={selectedDate}
+              onSelectDate={(d) => setSelectedDate(d)}
+              onDoubleClickDate={(d) => {
+                setSelectedDate(d);
+                setViewMode("day");
+              }}
+              events={events}
+              tasks={tasks}
+            />
+          )}
 
-            {isLoading ? (
-              <div className="py-12 text-center text-xs text-surface-400">
-                Cargando eventos...
-              </div>
-            ) : events.length === 0 ? (
-              <div className="py-12 text-center text-xs text-surface-400 space-y-3">
-                <Calendar className="w-8 h-8 text-surface-600 mx-auto" />
-                <p className="font-medium text-surface-200">No hay eventos registrados para este día.</p>
-                <p className="text-[11px] text-surface-400 max-w-sm mx-auto">
-                  Configura tu enlace iCal privado o pulsa &quot;Cargar Demo&quot; para comprobar la detección de huecos.
-                </p>
-                <div className="pt-2 flex justify-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsConfigOpen(true)}
-                    className="px-3.5 py-1.5 bg-accent-600 hover:bg-accent-500 text-white rounded text-xs transition-colors"
-                  >
-                    Configurar Enlace iCal
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {events.map((ev) => (
-                  <div
-                    key={ev.id}
-                    className="p-3.5 rounded bg-surface-950 border border-surface-800 flex items-start justify-between gap-4"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-medium text-surface-100">
-                          {ev.summary}
-                        </span>
-                        {ev.isAllDay && (
-                          <span className="text-[10px] bg-blue-950 text-blue-300 border border-blue-800 px-1.5 py-0.2 rounded font-mono">
-                            Día completo
-                          </span>
-                        )}
-                      </div>
-                      {ev.description && (
-                        <p className="text-[11px] text-surface-400 mt-1 line-clamp-2">
-                          {ev.description}
-                        </p>
-                      )}
-                      {ev.location && (
-                        <div className="flex items-center gap-1 text-[11px] text-surface-400 mt-1">
-                          <MapPin className="w-3 h-3 text-surface-400" />
-                          <span>{ev.location}</span>
-                        </div>
-                      )}
-                    </div>
+          {viewMode === "week" && (
+            <CalendarWeekView
+              currentDate={currentDate}
+              selectedDate={selectedDate}
+              onSelectDate={(d) => setSelectedDate(d)}
+              events={events}
+              freeSlots={freeSlots}
+            />
+          )}
 
-                    <div className="text-right shrink-0">
-                      <div className="text-xs font-mono text-blue-300">
-                        {format(new Date(ev.startTime), "HH:mm")} - {format(new Date(ev.endTime), "HH:mm")}
-                      </div>
-                      <div className="text-[10px] text-surface-400 font-mono mt-0.5">
-                        {Math.round((new Date(ev.endTime).getTime() - new Date(ev.startTime).getTime()) / 60000)} min
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          {viewMode === "day" && (
+            <CalendarDayView
+              selectedDate={selectedDate}
+              events={events}
+              freeSlots={freeSlots}
+              onScheduleSlot={(slot) => {
+                handleAddTask({
+                  title: "Bloque de trabajo enfocado",
+                  scheduledStart: new Date(slot.start).toISOString(),
+                  scheduledEnd: new Date(slot.end).toISOString(),
+                  estimatedDuration: slot.durationMinutes,
+                  priority: "HIGH",
+                });
+              }}
+            />
+          )}
         </div>
 
-        {/* Free slots column */}
-        <div className="lg:col-span-5 space-y-4">
-          <div className="bg-surface-900 border border-surface-800 rounded-lg p-5">
-            <h3 className="text-xs font-semibold text-surface-100 uppercase tracking-wider pb-3 border-b border-surface-800 mb-4 flex items-center justify-between">
-              <span>Huecos Libres Calculados ({freeSlots.length})</span>
-              <span className="text-brand-400 font-mono text-[11px]">
-                {totalFreeMinutes} min útiles
-              </span>
-            </h3>
-
-            {freeSlots.length === 0 ? (
-              <div className="py-8 text-center text-xs text-surface-400">
-                No hay huecos libres identificados en la ventana laboral.
-              </div>
-            ) : (
-              <div className="space-y-2.5">
-                {freeSlots.map((slot, idx) => (
-                  <div
-                    key={idx}
-                    className="p-3 rounded bg-surface-950 border border-brand-900/50 flex items-center justify-between"
-                  >
-                    <div className="flex items-center gap-2">
-                      <Clock className="w-3.5 h-3.5 text-brand-500" />
-                      <span className="text-xs font-medium text-surface-200">
-                        Ventana {idx + 1}
-                      </span>
-                      <span className="text-[10px] font-mono bg-brand-950 text-brand-400 px-1.5 py-0.5 rounded border border-brand-800">
-                        {slot.durationMinutes} min
-                      </span>
-                    </div>
-
-                    <div className="text-xs font-mono text-surface-400">
-                      {format(new Date(slot.start), "HH:mm")} - {format(new Date(slot.end), "HH:mm")}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+        {/* Right Side: Quick To-Do List Panel */}
+        <div className={`lg:col-span-4 ${mobileTab === "calendar" ? "hidden md:block" : "block"}`}>
+          <CalendarTodoPanel
+            tasks={tasks}
+            onToggleStatus={handleTaskStatusToggle}
+            onAddTask={handleAddTask}
+            onDeleteTask={handleDeleteTask}
+            freeSlots={freeSlots}
+            onRefresh={() => loadCalendarData(selectedDateStr)}
+          />
         </div>
       </div>
 
       {/* iCal Configuration Modal */}
       {isConfigOpen && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-surface-900 border border-surface-700 rounded-xl max-w-xl w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-surface-800">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="glass-panel rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-5 border border-white/10 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-5 h-5 text-accent-400" />
                 <h2 className="text-base font-bold text-surface-100">
@@ -480,14 +549,14 @@ export default function CalendarPage() {
               <button
                 type="button"
                 onClick={() => setIsConfigOpen(false)}
-                className="p-1 rounded hover:bg-surface-800 text-surface-400 hover:text-surface-200 transition-colors"
+                className="p-1 rounded-full hover:bg-white/5 text-surface-400 hover:text-surface-200 transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Tutorial Step-by-Step */}
-            <div className="bg-surface-950 border border-surface-800 rounded-lg p-4 space-y-3">
+            {/* Tutorial */}
+            <div className="glass-card rounded-xl p-4 space-y-3">
               <div className="flex items-center gap-2 text-xs font-semibold text-accent-400 uppercase tracking-wider">
                 <Info className="w-4 h-4" />
                 <span>Cómo obtener tu enlace iCal privado en 4 pasos:</span>
@@ -497,15 +566,15 @@ export default function CalendarPage() {
                   Abre <a href="https://calendar.google.com" target="_blank" rel="noreferrer" className="text-accent-400 underline inline-flex items-center gap-0.5">Google Calendar <ExternalLink className="w-2.5 h-2.5" /></a> en tu ordenador.
                 </li>
                 <li>
-                  En el menú de la izquierda, busca <strong>&quot;Mis calendarios&quot;</strong>, pasa el ratón sobre tu calendario principal y pulsa los tres puntos verticales <strong>⋮</strong> &rarr; <strong>&quot;Configurar y compartir&quot;</strong>.
+                  En el menú de la izquierda, pasa el ratón sobre tu calendario y pulsa <strong>⋮ &rarr; Configurar y compartir</strong>.
                 </li>
                 <li>
-                  En la columna lateral izquierda, haz clic en <strong>&quot;Integrar el calendario&quot;</strong>.
+                  En la barra lateral izquierda, pulsa en <strong>&quot;Integrar el calendario&quot;</strong>.
                 </li>
                 <li>
-                  Baja hasta encontrar el recuadro <strong>&quot;Dirección secreta en formato iCal&quot;</strong> y copia la URL completa.
-                  <div className="mt-1 text-[11px] font-mono text-amber-300 bg-surface-900 p-2 rounded border border-surface-800">
-                    Formato: https://calendar.google.com/calendar/ical/.../private-.../basic.ics
+                  Copia la URL del recuadro <strong>&quot;Dirección secreta en formato iCal&quot;</strong>.
+                  <div className="mt-1 text-[11px] font-mono text-amber-300 bg-surface-950 p-2 rounded-lg border border-white/[0.06]">
+                    https://calendar.google.com/calendar/ical/.../private-.../basic.ics
                   </div>
                 </li>
               </ol>
@@ -524,31 +593,40 @@ export default function CalendarPage() {
                     value={inputIcalUrl}
                     onChange={(e) => setInputIcalUrl(e.target.value)}
                     placeholder="https://calendar.google.com/calendar/ical/.../private-.../basic.ics"
-                    className="w-full pl-9 pr-3 py-2 bg-surface-950 border border-surface-700 rounded text-xs text-surface-100 font-mono placeholder:text-surface-600 focus:outline-none focus:border-accent-500"
+                    className="w-full pl-9 pr-3 py-2 bg-surface-950 border border-white/10 rounded-xl text-xs text-surface-100 font-mono placeholder:text-surface-600 focus:outline-none focus:border-accent-500"
                   />
                   <LinkIcon className="w-4 h-4 text-surface-500 absolute left-3 top-2.5" />
                 </div>
-                <p className="text-[11px] text-surface-400 mt-1">
-                  AI Life OS solo leerá los horarios de tus eventos para bloquear ventanas y calcular los huecos libres.
-                </p>
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-surface-800">
+              <div className="flex items-center justify-between pt-3 border-t border-white/[0.08]">
                 <button
                   type="button"
-                  onClick={() => setIsConfigOpen(false)}
-                  className="px-3.5 py-2 rounded text-xs text-surface-300 hover:bg-surface-800 transition-colors"
+                  onClick={handleSeedDemo}
+                  disabled={isSyncing}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-surface-950 hover:bg-surface-800 text-surface-300 border border-white/10 rounded-xl text-xs transition-colors"
                 >
-                  Cancelar
+                  <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Cargar Datos Demo</span>
                 </button>
-                <button
-                  type="submit"
-                  disabled={isSavingConfig || !inputIcalUrl.trim()}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-accent-600 hover:bg-accent-500 text-white rounded text-xs font-medium transition-colors disabled:opacity-50"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isSavingConfig ? "animate-spin" : ""}`} />
-                  {isSavingConfig ? "Guardando y Validando..." : "Guardar y Sincronizar"}
-                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsConfigOpen(false)}
+                    className="px-3.5 py-2 rounded-xl text-xs text-surface-300 hover:bg-white/5 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingConfig || !inputIcalUrl.trim()}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-accent-600 hover:bg-accent-500 text-white rounded-xl text-xs font-medium transition-all shadow-md disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isSavingConfig ? "animate-spin" : ""}`} />
+                    <span>{isSavingConfig ? "Guardando..." : "Guardar y Sincronizar"}</span>
+                  </button>
+                </div>
               </div>
             </form>
           </div>

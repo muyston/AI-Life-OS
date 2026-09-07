@@ -12,7 +12,8 @@ export type TaskOrigin =
   | "DEV_AGENT" 
   | "STRATEGY_AGENT" 
   | "SALES_AGENT" 
-  | "OPERATIONS_AGENT";
+  | "OPERATIONS_AGENT"
+  | "VOICE_CAPTURE";
 
 export type AgentName = 
   | "ORCHESTRATOR" 
@@ -91,8 +92,8 @@ export interface CalendarEventEntity {
 }
 
 export interface FreeTimeSlot {
-  start: Date;
-  end: Date;
+  start: Date | string;
+  end: Date | string;
   durationMinutes: number;
 }
 
@@ -283,5 +284,232 @@ export interface IdeaEntity {
   structuredAnalysis?: IdeaStructuredAnalysis | null;
   createdAt: string | Date;
   updatedAt: string | Date;
+}
+
+// -------------------------------------------------------------
+// HABIT TYPES
+// -------------------------------------------------------------
+export type HabitFrequency = "DAILY" | "WEEKDAYS" | "WEEKLY";
+
+export interface HabitLogEntity {
+  id: string;
+  habitId: string;
+  date: string; // YYYY-MM-DD
+  completed: boolean;
+  notes?: string | null;
+  createdAt: string | Date;
+}
+
+export interface HabitWithStats {
+  id: string;
+  title: string;
+  description: string | null;
+  category: ProjectCategory;
+  frequency: HabitFrequency | string;
+  targetDays: number;
+  icon?: string | null;
+  active: boolean;
+  isCompletedToday: boolean;
+  streak: number;
+  bestStreak: number;
+  weeklyCompletedCount: number;
+  monthlyCompletedCount: number;
+  consistencyPercent: number;
+  recentLogs: { date: string; completed: boolean }[];
+  weekDaysStatus: { date: string; dayName: string; dayNumber: number; completed: boolean; isToday: boolean }[];
+  createdAt: string | Date;
+  updatedAt: string | Date;
+}
+
+// -------------------------------------------------------------
+// CALENDAR TYPES
+// -------------------------------------------------------------
+export type CalendarViewType = "month" | "week" | "day" | "list";
+
+// -------------------------------------------------------------
+// VOICE TYPES
+// -------------------------------------------------------------
+export type VoiceIntentType = "TASK" | "IDEA" | "HABIT_LOG" | "QUICK_NOTE" | "UNKNOWN";
+
+export interface VoiceProcessResult {
+  intent: VoiceIntentType;
+  transcript: string;
+  confidence: number;
+  summary: string;
+  taskData?: {
+    title: string;
+    description?: string;
+    priority: PriorityLevel;
+    category?: ProjectCategory;
+    deadline?: string | null;
+    estimatedDuration?: number;
+    scheduledStart?: string | null;
+    scheduledEnd?: string | null;
+  };
+  ideaData?: {
+    rawContent: string;
+    category: IdeaCategory;
+    assignedAgent: IdeaAssignedAgent;
+  };
+  habitData?: {
+    habitId?: string;
+    habitName?: string;
+    date: string;
+    completed: boolean;
+  };
+}
+
+// -------------------------------------------------------------
+// VISION ROUTINE TYPES
+// -------------------------------------------------------------
+export type VisionRoutineDayOfWeek = 
+  | "MONDAY" 
+  | "TUESDAY" 
+  | "WEDNESDAY" 
+  | "THURSDAY" 
+  | "FRIDAY" 
+  | "SATURDAY" 
+  | "SUNDAY";
+
+export interface VisionRoutineClass {
+  id: string;
+  dayOfWeek: VisionRoutineDayOfWeek;
+  dayName: string;
+  subject: string;
+  startTime: string; // HH:mm
+  endTime: string;   // HH:mm
+  classroom?: string;
+  selected?: boolean;
+}
+
+export interface VisionRoutineGymSession {
+  id: string;
+  dayOfWeek: VisionRoutineDayOfWeek;
+  dayName: string;
+  focus: string;
+  startTime: string; // HH:mm
+  endTime: string;   // HH:mm
+  durationMinutes: number;
+  rationale: string;
+  selected?: boolean;
+}
+
+export interface VisionRoutineStudySession {
+  id: string;
+  dayOfWeek: VisionRoutineDayOfWeek;
+  dayName: string;
+  subject: string;
+  startTime: string; // HH:mm
+  endTime: string;   // HH:mm
+  durationMinutes: number;
+  rationale: string;
+  selected?: boolean;
+}
+
+export interface VisionRoutineHabit {
+  id: string;
+  title: string;
+  description: string;
+  category: ProjectCategory;
+  frequency: HabitFrequency;
+  targetDays: number;
+  selected?: boolean;
+}
+
+export interface VisionRoutineProposal {
+  generatedAt: string;
+  startDate: string;
+  summary: string;
+  detectedClasses: VisionRoutineClass[];
+  gymSessions: VisionRoutineGymSession[];
+  studySessions: VisionRoutineStudySession[];
+  suggestedHabits: VisionRoutineHabit[];
+  tacticalAdvice: string[];
+}
+
+export interface VisionRoutineApplyPayload {
+  targetStartDate: string;
+  classes: VisionRoutineClass[];
+  gymSessions: VisionRoutineGymSession[];
+  studySessions: VisionRoutineStudySession[];
+  habits: VisionRoutineHabit[];
+  createCalendarEvents?: boolean;
+  createTasks?: boolean;
+  createHabits?: boolean;
+}
+
+export type AntigravityWorkspaceStatus = 
+  | "ACTIVE" 
+  | "PLANNING" 
+  | "WAITING_APPROVAL" 
+  | "COMPLETED" 
+  | "IDLE";
+
+export interface AntigravityPlanTaskItem {
+  id: string;
+  title: string;
+  description: string;
+  completed: boolean;
+  filePath?: string;
+}
+
+export interface AntigravityPlanData {
+  conversationId: string;
+  projectPath: string;
+  projectName: string;
+  planTitle: string;
+  planSummary: string | null;
+  requestFeedback: boolean;
+  userFacing: boolean;
+  updatedAt: string | null;
+  content: string;
+  tasks: AntigravityPlanTaskItem[];
+  hasWalkthrough: boolean;
+  walkthroughContent?: string;
+  walkthroughSummary?: string | null;
+}
+
+export interface AntigravityConversationSummary {
+  conversationId: string;
+  stepCount: number;
+  lastStepTime: string | null;
+  lastUserInput: string | null;
+  hasPlan: boolean;
+  planSummary: string | null;
+  requestFeedback: boolean;
+  hasWalkthrough: boolean;
+  walkthroughSummary: string | null;
+  artifactsCount: number;
+  artifacts: string[];
+}
+
+export interface AntigravityProjectDetails {
+  id: string;
+  name: string;
+  folderName: string;
+  localPath: string;
+  workspaceUri: string;
+  repoUrl: string | null;
+  category: ProjectCategory;
+  priority: PriorityLevel;
+  status: AntigravityWorkspaceStatus;
+  totalConversations: number;
+  totalSteps: number;
+  latestConversation: AntigravityConversationSummary | null;
+  recentConversations: AntigravityConversationSummary[];
+  linkedLifeOsProjectId?: string | null;
+  tasksCount?: {
+    total: number;
+    pending: number;
+    completed: number;
+  };
+}
+
+export interface AntigravityInstructionPayload {
+  projectPath: string;
+  conversationId?: string;
+  instruction: string;
+  category?: ProjectCategory;
+  createTask?: boolean;
 }
 
