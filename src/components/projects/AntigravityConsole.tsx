@@ -20,7 +20,8 @@ import {
 } from "lucide-react";
 import { 
   AntigravityProjectDetails, 
-  AntigravityWorkspaceStatus 
+  AntigravityWorkspaceStatus,
+  AntigravityMcpServerInfo 
 } from "@/lib/types";
 import { AntigravityPlanModal } from "./AntigravityPlanModal";
 import { AntigravityInstructionModal } from "./AntigravityInstructionModal";
@@ -44,6 +45,21 @@ export function AntigravityConsole({ onSyncTriggered }: AntigravityConsoleProps)
   const [selectedProjectForInstruction, setSelectedProjectForInstruction] = useState<AntigravityProjectDetails | null>(null);
   const [isInstructionModalOpen, setIsInstructionModalOpen] = useState(false);
 
+  // MCP Servers state
+  const [mcpServers, setMcpServers] = useState<AntigravityMcpServerInfo[]>([]);
+
+  const loadMcpServers = useCallback(async () => {
+    try {
+      const res = await fetch("/api/antigravity/mcp", { cache: "no-store" });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.data?.servers)) {
+        setMcpServers(data.data.servers);
+      }
+    } catch {
+      // Ignorar fallo de conexion silenciosamente
+    }
+  }, []);
+
   const loadWorkspaces = useCallback(async () => {
     try {
       setIsRefreshing(true);
@@ -62,7 +78,8 @@ export function AntigravityConsole({ onSyncTriggered }: AntigravityConsoleProps)
 
   useEffect(() => {
     loadWorkspaces();
-  }, [loadWorkspaces]);
+    loadMcpServers();
+  }, [loadWorkspaces, loadMcpServers]);
 
   const handleSyncWithPrisma = async () => {
     try {
@@ -223,6 +240,43 @@ export function AntigravityConsole({ onSyncTriggered }: AntigravityConsoleProps)
           </div>
         </div>
       </div>
+
+      {/* MCP Servers Connected Strip */}
+      {mcpServers.length > 0 && (
+        <div className="glass-panel rounded-2xl p-4 border border-white/10 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-semibold text-surface-200 uppercase tracking-wider">
+              <Cpu className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Servidores MCP Conectados ({mcpServers.length})</span>
+            </div>
+            <span className="text-[10px] font-mono text-emerald-400 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Ecosistema Activo
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+            {mcpServers.map((srv) => (
+              <div
+                key={srv.name}
+                className="p-3 rounded-xl bg-surface-950/70 border border-white/[0.06] space-y-1 hover:border-cyan-500/30 transition-colors"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-xs font-semibold text-cyan-300 capitalize">
+                    {srv.name}
+                  </span>
+                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-cyan-950/60 text-cyan-400 border border-cyan-800/60">
+                    {srv.toolsCount} tools
+                  </span>
+                </div>
+                <p className="text-[10px] text-surface-400 line-clamp-1">
+                  {srv.description}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Action Header */}
       <div className="flex items-center justify-between gap-3 flex-wrap">

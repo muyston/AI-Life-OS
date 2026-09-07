@@ -513,3 +513,70 @@ export interface AntigravityInstructionPayload {
   createTask?: boolean;
 }
 
+export type RoutineFrequencyType = "DAILY" | "WEEKDAYS" | "WEEKENDS" | "WEEKLY";
+
+export interface RoutinePrediction {
+  id: string;
+  name: string;
+  domain: ProjectCategory;
+  confidenceScore: number;
+  detectedFrequency: RoutineFrequencyType;
+  suggestedTimeStart: string;
+  suggestedTimeEnd: string;
+  durationMinutes: number;
+  reasoning: string;
+  historicalOccurrences: number;
+  active: boolean;
+  selected?: boolean;
+}
+
+export interface RoutinePredictionReport {
+  analyzedEventsCount: number;
+  analyzedTasksCount: number;
+  analyzedHabitsCount: number;
+  overallPredictabilityScore: number;
+  predictions: RoutinePrediction[];
+  generatedAt: string;
+}
+
+export type ReflectionType = "MORNING" | "EVENING" | "FULL_DAY";
+
+export interface DailyReflection {
+  id: string;
+  date: string;
+  type: ReflectionType;
+  domainRatings: Record<ProjectCategory, number>;
+  clarityScore: number;
+  energyScore: number;
+  wins: string[];
+  frictionPoints: string[];
+  keyLearnings: string[];
+  nextDayCommitments: string[];
+  notes: string;
+  audioTranscript?: string | null;
+  paperScanImageUrl?: string | null;
+  paperScanAnalysis?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReflectionPaperAnalysisResult {
+  transcription: string;
+  summary: string;
+  wins: string[];
+  frictionPoints: string[];
+  keyLearnings: string[];
+  extractedTasks: string[];
+  estimatedMoodScore: number;
+  domainInsights: Record<ProjectCategory, string>;
+}
+
+export interface AntigravityMcpServerInfo {
+  name: string;
+  status: "ACTIVE" | "CONFIGURED" | "AVAILABLE";
+  toolsCount: number;
+  tools: string[];
+  description: string;
+}
+
+

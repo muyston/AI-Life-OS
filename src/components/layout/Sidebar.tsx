@@ -14,7 +14,8 @@ import {
   Activity, 
   ShieldCheck,
   Radio,
-  Zap
+  Zap,
+  BookOpen
 } from "lucide-react";
 import { useLifeOS } from "@/lib/store/life-os-store";
 
@@ -59,6 +60,12 @@ export function Sidebar() {
       icon: Calendar,
       badge: events.length > 0 ? `${events.length} ev.` : null,
       badgeColor: "text-blue-400 bg-blue-950/60 border-blue-800/60",
+    },
+    { 
+      name: "Reflexion Diaria", 
+      href: "/reflection", 
+      icon: BookOpen,
+      badge: null,
     },
     { 
       name: "Proyectos", 

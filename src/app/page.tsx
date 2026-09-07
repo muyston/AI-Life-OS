@@ -19,6 +19,7 @@ import { TaskCard } from "@/components/tasks/TaskCard";
 import { TaskModal } from "@/components/tasks/TaskModal";
 import { VoiceInputButton } from "@/components/voice/VoiceInputButton";
 import { VisionScheduleButton } from "@/components/vision/VisionScheduleButton";
+import { RoutinePredictionWidget } from "@/components/dashboard/RoutinePredictionWidget";
 import { 
   RefreshCw, 
   Plus, 
@@ -308,6 +309,9 @@ export default function DashboardPage() {
         onActionStatusChange={handleActionStatusChange}
         isLoading={isLoading}
       />
+
+      {/* Motor Predictivo de Rutinas */}
+      <RoutinePredictionWidget onRoutinesApplied={refreshAll} />
 
       {/* Main Grid: Planning Agent + Timeline */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

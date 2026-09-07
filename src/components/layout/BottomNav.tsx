@@ -9,7 +9,8 @@ import {
   CheckSquare, 
   Calendar, 
   FolderKanban, 
-  Bot 
+  Bot,
+  BookOpen
 } from "lucide-react";
 
 export function BottomNav() {
@@ -17,10 +18,10 @@ export function BottomNav() {
 
   const navItems = [
     { name: "Hoy", href: "/", icon: LayoutDashboard },
-    { name: "Inbox", href: "/ideas", icon: Inbox },
-    { name: "Hábitos", href: "/habits", icon: Flame },
+    { name: "Habitos", href: "/habits", icon: Flame },
     { name: "Tareas", href: "/tasks", icon: CheckSquare },
     { name: "Agenda", href: "/calendar", icon: Calendar },
+    { name: "Reflexion", href: "/reflection", icon: BookOpen },
     { name: "Proyectos", href: "/projects", icon: FolderKanban },
   ];
 
